@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F8FAFC">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- بطاقة الترحيب العلوية مع زر مشاركة التطبيق العلوي الوحيد -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="#1E3A8A"
+                android:padding="16dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/welcome_title"
+                        android:textColor="#FFFFFF"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <!-- زر مشاركة التطبيق الوحيد في الرأس -->
+                    <Button
+                        android:id="@+id/btn_share_app_header"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="مشاركة التطبيق ↗"
+                        android:textColor="#1E3A8A"
+                        android:background="#FDE047"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:paddingLeft="10dp"
+                        android:paddingRight="10dp" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/welcome_subtitle"
+                    android:textColor="#CBD5E1"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- عنوان قسم الأدوات -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/section_tools"
+                android:textColor="#0F172A"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="12dp" />
+
+            <!-- 1. زر تصغير حجم الصور (صورة أو أكثر < 200 KB) -->
+            <Button
+                android:id="@+id/btn_compress_image"
+                android:layout_width="match_parent"
+                android:layout_height="64dp"
+                android:text="@string/btn_compress_image"
+                android:textColor="#FFFFFF"
+                android:background="#2563EB"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="12dp" />
+
+            <!-- 2. زر تصغير ملف PDF (< 500 KB) -->
+            <Button
+                android:id="@+id/btn_compress_pdf"
+                android:layout_width="match_parent"
+                android:layout_height="64dp"
+                android:text="@string/btn_compress_pdf"
+                android:textColor="#FFFFFF"
+                android:background="#EA580C"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="12dp" />
+
+            <!-- 3. زر دمج الصور في PDF (< 500 KB) -->
+            <Button
+                android:id="@+id/btn_merge_pdf"
+                android:layout_width="match_parent"
+                android:layout_height="64dp"
+                android:text="@string/btn_merge_pdf"
+                android:textColor="#FFFFFF"
+                android:background="#059669"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp" />
+
+            <!-- نص الحالة البسيط والموجز -->
+            <TextView
+                android:id="@+id/tv_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="12dp"
+                android:background="#E2E8F0"
+                android:textColor="#1E293B"
+                android:textSize="13sp"
+                android:text="جاهز لاختيار وضغط الملفات تلقائياً..."
+                android:layout_marginBottom="16dp" />
+
+            <!-- المربع الأزرق لروابط المواقع الحكومية -->
+            <LinearLayout
+                android:id="@+id/card_portals"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="#1E40AF"
+                android:padding="16dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginBottom="14dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/portals_card_title"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/portals_card_subtitle"
+                    android:textColor="#DBEAFE"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- شريط معلومات الحفظ في المعرض والتنزيلات -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/saved_in_downloads"
+                android:textColor="#64748B"
+                android:textSize="11sp"
+                android:gravity="center"
+                android:layout_marginTop="4dp" />
+
+            <!-- اسم المصمم في الفوتر بخط صغير وأنيق -->
+            <TextView
+                android:id="@+id/tv_designer_credit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/designer_credit"
+                android:textColor="#94A3B8"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:padding="12dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="60dp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- رسالة الـ 3 ثوانٍ الذكية العائمة (Floating Snackbar) في أسفل الشاشة مع زر [ فتح ] -->
+    <LinearLayout
+        android:id="@+id/layout_smart_toast"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_margin="16dp"
+        android:background="#0F172A"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tv_toast_message"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:text="(تم الحفظ - الحجم: 145 KB)" />
+
+        <Button
+            android:id="@+id/btn_toast_open"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:background="#2563EB"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:paddingLeft="18dp"
+            android:paddingRight="18dp"
+            android:text="فتح" />
+    </LinearLayout>
+
+</RelativeLayout>

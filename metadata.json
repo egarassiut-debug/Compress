@@ -1,0 +1,6 @@
+{
+  "name": "تصغير حجم الصور للمنظومة",
+  "description": "تطبيق فلاتر وأندرويد مخصص للمحامين لضغط الصور والـ PDF بحد أقصى 500KB للمنظومة القضائية ومصر الرقمية مع الحفظ بالمعرض ونافذة مشاركة فورية. تصميم وتنفيذ: مصطفى فرويز المحامي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

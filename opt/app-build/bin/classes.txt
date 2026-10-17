@@ -1,0 +1,17 @@
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity$6.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/R$color.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/R$attr.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/R$style.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity$5.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity$1.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity$8.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity$3.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity$4.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/R$string.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/R.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/R$layout.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/R$drawable.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/R$id.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity$7.class
+/app/applet/opt/app-build/bin/com/example/legal_file_compressor/MainActivity$2.class

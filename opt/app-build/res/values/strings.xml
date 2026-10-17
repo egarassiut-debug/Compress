@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">تصغير حجم الصور للمنظومة</string>
+    <string name="welcome_title">أهلاً بك زميلي العزيز المحامي ⚖️</string>
+    <string name="welcome_subtitle">معالجة محلية فائقة الدقة مع الحفاظ التام على الألوان والأختام وحفظ بالمعرض ومشاركة فورية.</string>
+    <string name="section_tools">أدوات ضغط وتحويل المستندات:</string>
+    <string name="btn_compress_image">1. تصغير حجم الصور (صورة أو أكثر &lt; 200 KB)</string>
+    <string name="btn_compress_image_desc">ضغط صور التوكيلات والبطاقات (واحدة أو أكثر دفعة واحدة) لتصبح أقل من 200 KB وحفظها فوراً بالمعرض.</string>
+    <string name="btn_compress_pdf">2. تصغير حجم ملف PDF (&lt; 500 KB)</string>
+    <string name="btn_compress_pdf_desc">تقليص عرائض الدعاوى ومذكرات الدفاع مع الحفاظ على الألوان والأختام الأصلية (أقل من 500 KB).</string>
+    <string name="btn_merge_pdf">3. دمج الصور في ملف PDF واحد (&lt; 500 KB)</string>
+    <string name="btn_merge_pdf_desc">دمج أوراق المحاضر وحوافظ المستندات بالألوان ودقة A4 حادة بدون تشويش أو تبكسل (&lt; 500 KB).</string>
+    <string name="btn_share_app">مشاركة التطبيق مع الزملاء المحامين 📲</string>
+    <string name="portals_card_title">تسجيل الدخول لموقع النيابة ومحكمة الأسرة ومصر الرقمية</string>
+    <string name="portals_card_subtitle">اضغط هنا لفتح شبكة الـ 10 مواقع القضائية الرسمية مباشرة</string>
+    <string name="saved_in_downloads">الصور تُحفظ تلقائياً في المعرض (Gallery)، وملفات الـ PDF في التنزيلات (Downloads).</string>
+    <string name="designer_credit">تصميم وتنفيذ: مصطفى فرويز المحامي</string>
+</resources>
