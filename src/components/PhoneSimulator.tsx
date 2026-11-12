@@ -35,6 +35,7 @@ import {
   ChevronUp,
   X,
   Sparkles,
+  Pencil,
 } from 'lucide-react';
 import {
   compressImageClient,
@@ -107,6 +108,101 @@ export const PhoneSimulator: React.FC = () => {
     smartToastTimerRef.current = setTimeout(() => {
       setSmartToast({ show: false, message: '' });
     }, 3000); // تختفي تلقائياً خلال 3 ثوانٍ بالضبط
+  };
+
+  // إعدادات الحجم المستهدف القابلة للتعديل والمحفوظة محلياً
+  // الصور: القيمة الافتراضية 200KB • الـ PDF: القيمة الافتراضية 500KB
+  const [targetImageKB, setTargetImageKB] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('manzoma_target_image_kb');
+        if (saved) {
+          const parsed = parseInt(saved, 10);
+          if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+      } catch (_) {}
+    }
+    return 200; // القيمة الافتراضية 200KB
+  });
+
+  const [targetPdfKB, setTargetPdfKB] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('manzoma_target_pdf_kb');
+        if (saved) {
+          const parsed = parseInt(saved, 10);
+          if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+      } catch (_) {}
+    }
+    return 500; // القيمة الافتراضية 500KB
+  });
+
+  // حالة نافذة تعديل الحجم المستهدف
+  const [targetEditModal, setTargetEditModal] = useState<{
+    isOpen: boolean;
+    type: 'image' | 'pdf';
+    inputValue: string;
+    error?: string;
+  }>({
+    isOpen: false,
+    type: 'image',
+    inputValue: '200',
+  });
+
+  const openTargetEditor = (type: 'image' | 'pdf', e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const currentVal = type === 'image' ? targetImageKB : targetPdfKB;
+    setTargetEditModal({
+      isOpen: true,
+      type,
+      inputValue: currentVal.toString(),
+      error: undefined,
+    });
+  };
+
+  const handleSaveTargetKB = () => {
+    const parsed = parseInt(targetEditModal.inputValue.trim(), 10);
+    if (isNaN(parsed) || parsed <= 0) {
+      setTargetEditModal((prev) => ({
+        ...prev,
+        error: 'يرجى إدخال رقم صحيح موجب أكبر من صفر (مثال: 150 أو 300)',
+      }));
+      return;
+    }
+
+    if (targetEditModal.type === 'image') {
+      setTargetImageKB(parsed);
+      try {
+        localStorage.setItem('manzoma_target_image_kb', parsed.toString());
+      } catch (_) {}
+      showFlutterToast(`✅ تم تعديل الحجم المستهدف للصور إلى ${parsed} KB`);
+    } else {
+      setTargetPdfKB(parsed);
+      try {
+        localStorage.setItem('manzoma_target_pdf_kb', parsed.toString());
+      } catch (_) {}
+      showFlutterToast(`✅ تم تعديل الحجم المستهدف للـ PDF إلى ${parsed} KB`);
+    }
+
+    setTargetEditModal((prev) => ({ ...prev, isOpen: false }));
+  };
+
+  const handleResetTargetDefault = () => {
+    if (targetEditModal.type === 'image') {
+      setTargetImageKB(200);
+      try {
+        localStorage.removeItem('manzoma_target_image_kb');
+      } catch (_) {}
+      showFlutterToast('✅ استعادة القيمة الافتراضية للصور (200 KB)');
+    } else {
+      setTargetPdfKB(500);
+      try {
+        localStorage.removeItem('manzoma_target_pdf_kb');
+      } catch (_) {}
+      showFlutterToast('✅ استعادة القيمة الافتراضية للـ PDF (500 KB)');
+    }
+    setTargetEditModal((prev) => ({ ...prev, isOpen: false }));
   };
 
   // إشعار سناك بار فلاتر
@@ -462,6 +558,7 @@ export const PhoneSimulator: React.FC = () => {
 
     setIsProcessingImage(true);
     const totalOriginalBytes = filesToCompress.reduce((acc, f) => acc + f.size, 0);
+    const targetImageBytes = Math.round(targetImageKB * 1024 * 0.96);
 
     if (isProgressIndicatorEnabled) {
       setShowProgressWidget(true);
@@ -472,16 +569,16 @@ export const PhoneSimulator: React.FC = () => {
         currentSize: totalOriginalBytes,
         totalPages: filesToCompress.length,
         currentPage: 1,
-        targetMax: 185 * 1024 * filesToCompress.length,
-        detail: 'فحص الأختام والتباين ومعايير المنظومة',
+        targetMax: targetImageBytes * filesToCompress.length,
+        detail: `استهداف أقل من ${targetImageKB} KB لكل صورة مع الحفاظ على الألوان`,
       });
     }
 
     try {
-      // ضغط الصور لتكون أقل من 200 KB مع الحفاظ الكامل على الألوان وترشيح عالي الدقة
+      // ضغط الصور لتكون أقل من targetImageKB مع الحفاظ الكامل على الألوان وترشيح عالي الدقة
       const results = await compressMultipleImagesClient(
         filesToCompress,
-        185 * 1024,
+        targetImageBytes,
         (progress) => {
           if (isProgressIndicatorEnabled) {
             setCurrentProgress(progress);
@@ -524,6 +621,8 @@ export const PhoneSimulator: React.FC = () => {
     if (!selectedPdf) return;
 
     setIsProcessingPdf(true);
+    const targetPdfBytes = Math.round(targetPdfKB * 1024 * 0.96);
+
     if (isProgressIndicatorEnabled) {
       setShowProgressWidget(true);
       setCurrentProgress({
@@ -531,16 +630,16 @@ export const PhoneSimulator: React.FC = () => {
         percent: 10,
         originalSize: selectedPdf.size,
         currentSize: selectedPdf.size,
-        targetMax: 470 * 1024,
-        detail: 'تطبيق معيار 72-96 DPI لضمان نقاء الخطوط والأختام',
+        targetMax: targetPdfBytes,
+        detail: `استهداف أقل من ${targetPdfKB} KB مع الحفاظ على النصوص والأختام`,
       });
     }
 
     try {
-      // ضغط ملف الـ PDF ليكون أقل من 500 KB مع حفظ فوري
+      // ضغط ملف الـ PDF ليكون أقل من targetPdfKB مع حفظ فوري
       const result = await compressPdfClient(
         selectedPdf,
-        460 * 1024,
+        targetPdfBytes,
         (progress) => {
           if (isProgressIndicatorEnabled) {
             setCurrentProgress(progress);
@@ -570,6 +669,7 @@ export const PhoneSimulator: React.FC = () => {
 
     setIsProcessingMerge(true);
     const totalBytes = selectedImages.reduce((acc, f) => acc + f.size, 0);
+    const targetPdfBytes = Math.round(targetPdfKB * 1024 * 0.96);
 
     if (isProgressIndicatorEnabled) {
       setShowProgressWidget(true);
@@ -578,18 +678,18 @@ export const PhoneSimulator: React.FC = () => {
         percent: 10,
         originalSize: totalBytes,
         currentSize: totalBytes,
-        targetMax: 470 * 1024,
+        targetMax: targetPdfBytes,
         totalPages: selectedImages.length,
         currentPage: 1,
-        detail: 'تطبيق مقاس A4 القياسي والألوان الكاملة 100%',
+        detail: `استهداف أقل من ${targetPdfKB} KB وتطبيق الألوان الكاملة`,
       });
     }
 
     try {
-      // دمج الصور في PDF واحد بالألوان الكاملة وأقل من 500 KB مع حفظ فوري
+      // دمج الصور في PDF واحد بالألوان الكاملة وأقل من targetPdfKB مع حفظ فوري
       const result = await mergeImagesToPdfClient(
         selectedImages,
-        460 * 1024,
+        targetPdfBytes,
         (progress) => {
           if (isProgressIndicatorEnabled) {
             setCurrentProgress(progress);
@@ -897,7 +997,7 @@ export const PhoneSimulator: React.FC = () => {
                     <span className="text-[10px] text-blue-700 font-semibold">تنزيل مباشر في Downloads</span>
                   </div>
 
-                  {/* 1. تصغير حجم الصور (صورة أو أكثر < 200 KB) */}
+                  {/* 1. تصغير حجم الصور (صورة أو أكثر < targetImageKB KB) */}
                   <button
                     onClick={() => setCurrentScreen('compress_image')}
                     className="w-full bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-2xl p-3 flex items-start gap-3 transition-all text-right shadow-xs active:scale-[0.99] group"
@@ -908,17 +1008,22 @@ export const PhoneSimulator: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="font-bold text-xs text-slate-800">تصغير حجم الصور (صورة أو أكثر)</span>
-                        <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
-                          &lt; 200 KB
+                        <span
+                          onClick={(e) => openTargetEditor('image', e)}
+                          className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-1.5 py-0.5 rounded cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1 border border-blue-300/60 shadow-2xs"
+                          title="اضغط على الرقم لتعديل الحجم المستهدف للصور"
+                        >
+                          <span>&lt; {targetImageKB} KB</span>
+                          <Pencil size={8} className="opacity-70" />
                         </span>
                       </div>
                       <p className="text-[10.5px] text-slate-500 leading-tight">
-                        ضغط صور التوكيلات والبطاقات (واحدة أو أكثر دفعة واحدة) لتصبح أقل من 200 KB وحفظها فوراً بالمعرض.
+                        ضغط صور التوكيلات والبطاقات (واحدة أو أكثر دفعة واحدة) لتصبح أقل من {targetImageKB} KB وحفظها فوراً بالمعرض.
                       </p>
                     </div>
                   </button>
 
-                  {/* 2. تصغير حجم ملف PDF (بحد أقصى 500 KB) */}
+                  {/* 2. تصغير حجم ملف PDF (بحد أقصى targetPdfKB KB) */}
                   <button
                     onClick={() => setCurrentScreen('compress_pdf')}
                     className="w-full bg-white hover:bg-orange-50/60 border border-slate-200 hover:border-orange-300 rounded-2xl p-3 flex items-start gap-3 transition-all text-right shadow-xs active:scale-[0.99] group"
@@ -929,17 +1034,22 @@ export const PhoneSimulator: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="font-bold text-xs text-slate-800">تصغير حجم ملف PDF</span>
-                        <span className="text-[10px] bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded">
-                          &lt; 500 KB
+                        <span
+                          onClick={(e) => openTargetEditor('pdf', e)}
+                          className="text-[10px] bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold px-1.5 py-0.5 rounded cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1 border border-orange-300/60 shadow-2xs"
+                          title="اضغط على الرقم لتعديل الحجم المستهدف لملفات PDF"
+                        >
+                          <span>&lt; {targetPdfKB} KB</span>
+                          <Pencil size={8} className="opacity-70" />
                         </span>
                       </div>
                       <p className="text-[10.5px] text-slate-500 leading-tight">
-                        تقليص عرائض الدعاوى مع الحفاظ التام على الألوان والأختام وحدّة الخطوط (أقل من 500 KB).
+                        تقليص عرائض الدعاوى مع الحفاظ التام على الألوان والأختام وحدّة الخطوط (أقل من {targetPdfKB} KB).
                       </p>
                     </div>
                   </button>
 
-                  {/* 3. دمج الصور في ملف pdf واحد (< 500 KB) */}
+                  {/* 3. دمج الصور في ملف pdf واحد (< targetPdfKB KB) */}
                   <button
                     onClick={() => setCurrentScreen('merge_images')}
                     className="w-full bg-white hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 rounded-2xl p-3 flex items-start gap-3 transition-all text-right shadow-xs active:scale-[0.99] group"
@@ -950,12 +1060,17 @@ export const PhoneSimulator: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="font-bold text-xs text-slate-800">دمج الصور في ملف pdf واحد</span>
-                        <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">
-                          &lt; 500 KB
+                        <span
+                          onClick={(e) => openTargetEditor('pdf', e)}
+                          className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-700 font-bold px-1.5 py-0.5 rounded cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1 border border-emerald-300/60 shadow-2xs"
+                          title="اضغط على الرقم لتعديل الحجم المستهدف لملفات PDF"
+                        >
+                          <span>&lt; {targetPdfKB} KB</span>
+                          <Pencil size={8} className="opacity-70" />
                         </span>
                       </div>
                       <p className="text-[10.5px] text-slate-500 leading-tight">
-                        دمج أوراق الحافظة والمحاضر بالألوان الأصلية ودقة A4 حادة بدون تشويش أو تبكسل (&lt; 500 KB).
+                        دمج أوراق الحافظة والمحاضر بالألوان الأصلية ودقة A4 حادة بدون تشويش أو تبكسل (&lt; {targetPdfKB} KB).
                       </p>
                     </div>
                   </button>
@@ -1109,7 +1224,7 @@ export const PhoneSimulator: React.FC = () => {
                       اختر صورة أو عدة صور للمستندات
                     </h4>
                     <p className="text-[10px] text-slate-500 mb-3">
-                      سيتم ضغطها بدقة فائقة لتصبح <strong>أقل من 200 KB</strong> وحفظها فوراً في معرض الصور (Gallery)
+                      سيتم ضغطها بدقة فائقة لتصبح <strong>أقل من {targetImageKB} KB</strong> وحفظها فوراً في معرض الصور (Gallery)
                     </p>
 
                     <div className="flex flex-col gap-2">
@@ -1150,8 +1265,13 @@ export const PhoneSimulator: React.FC = () => {
                           <span className="text-xs font-bold text-slate-800">
                             الصور المحددة للضغط ({selectedImagesForCompress.length} صور):
                           </span>
-                          <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
-                            أقل من 200 KB لكل صورة
+                          <span
+                            onClick={(e) => openTargetEditor('image', e)}
+                            className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-2 py-0.5 rounded-full cursor-pointer flex items-center gap-1 border border-blue-300/60"
+                            title="اضغط لتعديل الحجم المستهدف"
+                          >
+                            <span>أقل من {targetImageKB} KB</span>
+                            <Pencil size={8} className="opacity-70" />
                           </span>
                         </div>
                         <div className="grid grid-cols-3 gap-2 max-h-36 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-100">
@@ -1205,8 +1325,13 @@ export const PhoneSimulator: React.FC = () => {
                             </div>
                             <div>
                               <span className="text-slate-400 block text-[10px]">الحجم المطلوب:</span>
-                              <span className="font-bold text-teal-700">
-                                {imageResult ? formatFileSize(imageResult.compressedSize) : 'أقل من 200 KB'}
+                              <span
+                                onClick={(e) => openTargetEditor('image', e)}
+                                className="font-bold text-teal-700 cursor-pointer hover:underline flex items-center gap-1"
+                                title="اضغط لتعديل الحجم المطلوب"
+                              >
+                                <span>{imageResult ? formatFileSize(imageResult.compressedSize) : `أقل من ${targetImageKB} KB`}</span>
+                                <Pencil size={9} className="opacity-60" />
                               </span>
                             </div>
                           </div>
@@ -1254,8 +1379,8 @@ export const PhoneSimulator: React.FC = () => {
                           <Download size={14} />
                           <span>
                             {selectedImagesForCompress.length > 1
-                              ? `ضغط وحفظ (${selectedImagesForCompress.length} صور) في المعرض (< 200 KB)`
-                              : 'ضغط وحفظ في معرض الصور (Gallery)'}
+                              ? `ضغط وحفظ (${selectedImagesForCompress.length} صور) في المعرض (< ${targetImageKB} KB)`
+                              : `ضغط وحفظ في المعرض (< ${targetImageKB} KB)`}
                           </span>
                         </>
                       )}
@@ -1265,7 +1390,7 @@ export const PhoneSimulator: React.FC = () => {
               </div>
             )}
 
-            {/* ب) شاشة ضغط ملف الـ PDF لأقل من 500 KB */}
+            {/* ب) شاشة ضغط ملف الـ PDF لأقل من targetPdfKB KB */}
             {currentScreen === 'compress_pdf' && (
               <div className="space-y-3 animate-fade-in">
                 <input
@@ -1291,7 +1416,7 @@ export const PhoneSimulator: React.FC = () => {
                       اختر ملف PDF لتصغير حجمه
                     </h4>
                     <p className="text-[10px] text-slate-500 mb-3">
-                      تقليص صفحات المذكرات والشكاوى لتصبح <strong>أقل من 500 KB</strong>
+                      تقليص صفحات المذكرات والشكاوى لتصبح <strong>أقل من {targetPdfKB} KB</strong>
                     </p>
 
                     <div className="flex flex-col gap-2">
@@ -1304,7 +1429,7 @@ export const PhoneSimulator: React.FC = () => {
                       <button
                         onClick={async () => {
                           const sampleImg = await generateSampleImage('عريضة دعوى وصحيفة استئناف', 1200);
-                          const sampleMerged = await mergeImagesToPdfClient([sampleImg], 480 * 1024);
+                          const sampleMerged = await mergeImagesToPdfClient([sampleImg], Math.round(targetPdfKB * 1024 * 0.96));
                           const samplePdf = new File([sampleMerged.blob], 'areeda_sample_large.pdf', {
                             type: 'application/pdf',
                           });
@@ -1337,7 +1462,7 @@ export const PhoneSimulator: React.FC = () => {
                       {pdfResult && (
                         <div className="bg-teal-50 border border-teal-200 rounded-xl p-2 flex items-center justify-between text-xs font-bold text-teal-800">
                           <span>الحجم بعد الضغط:</span>
-                          <span>{formatFileSize(pdfResult.compressedSize)} (أقل من 500 KB)</span>
+                          <span>{formatFileSize(pdfResult.compressedSize)} (أقل من {targetPdfKB} KB)</span>
                         </div>
                       )}
                     </div>
@@ -1374,7 +1499,7 @@ export const PhoneSimulator: React.FC = () => {
                       ) : (
                         <>
                           <Download size={14} />
-                          <span>ضغط وحفظ مباشر بالتنزيلات (&lt; 500 KB)</span>
+                          <span>ضغط وحفظ مباشر بالتنزيلات (&lt; {targetPdfKB} KB)</span>
                         </>
                       )}
                     </button>
@@ -1383,7 +1508,7 @@ export const PhoneSimulator: React.FC = () => {
               </div>
             )}
 
-            {/* ج) شاشة دمج الصور في ملف PDF واحد (<500KB) */}
+            {/* ج) شاشة دمج الصور في ملف PDF واحد (< targetPdfKB KB) */}
             {currentScreen === 'merge_images' && (
               <div className="space-y-3 animate-fade-in">
                 <input
@@ -1410,7 +1535,7 @@ export const PhoneSimulator: React.FC = () => {
                       دمج صور المحضر في ملف PDF واحد
                     </h4>
                     <p className="text-[10px] text-slate-500 mb-3">
-                      اختر عدة صور لحافظة المستندات لدمجها في ملف موحد <strong>أقل من 500 KB</strong>
+                      اختر عدة صور لحافظة المستندات لدمجها في ملف موحد <strong>أقل من {targetPdfKB} KB</strong>
                     </p>
 
                     <div className="flex flex-col gap-2">
@@ -1485,7 +1610,7 @@ export const PhoneSimulator: React.FC = () => {
                     {mergedPdfResult && (
                       <div className="bg-teal-50 border border-teal-200 rounded-xl p-2 flex items-center justify-between text-xs font-bold text-teal-800">
                         <span>تم دمج الـ PDF وحفظه:</span>
-                        <span>{formatFileSize(mergedPdfResult.compressedSize)} (&lt; 500 KB)</span>
+                        <span>{formatFileSize(mergedPdfResult.compressedSize)} (&lt; {targetPdfKB} KB)</span>
                       </div>
                     )}
 
@@ -1502,7 +1627,7 @@ export const PhoneSimulator: React.FC = () => {
                       ) : (
                         <>
                           <Download size={14} />
-                          <span>دمج وحفظ في Downloads (&lt; 500 KB)</span>
+                          <span>دمج وحفظ في Downloads (&lt; {targetPdfKB} KB)</span>
                         </>
                       )}
                     </button>
@@ -1511,6 +1636,115 @@ export const PhoneSimulator: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* ==================== نافذة تعديل الحجم المستهدف (مباشرة وتفاعلية) ==================== */}
+          {targetEditModal.isOpen && (
+            <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-right">
+              <div className="w-full max-w-[300px] bg-white rounded-3xl p-4 text-slate-900 space-y-3.5 shadow-2xl border border-slate-200 animate-slide-up">
+                {/* الترويسة */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                      targetEditModal.type === 'image' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-600'
+                    }`}>
+                      {targetEditModal.type === 'image' ? <FileImage size={18} /> : <FileText size={18} />}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-xs text-slate-900">
+                        {targetEditModal.type === 'image' ? 'تعديل حجم الصور المستهدف' : 'تعديل حجم PDF المستهدف'}
+                      </h3>
+                      <p className="text-[10px] text-slate-400">
+                        {targetEditModal.type === 'image' ? 'الافتراضي: 200 KB' : 'الافتراضي: 500 KB'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setTargetEditModal((prev) => ({ ...prev, isOpen: false }))}
+                    className="p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {/* حقل إدخال الرقم الصحيح الموجب */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-700 block">
+                    أدخل الحجم المستهدف بالكيلوبايت (KB):
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      autoFocus
+                      value={targetEditModal.inputValue}
+                      onChange={(e) => setTargetEditModal((prev) => ({ ...prev, inputValue: e.target.value, error: undefined }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveTargetKB();
+                        if (e.key === 'Escape') setTargetEditModal((prev) => ({ ...prev, isOpen: false }));
+                      }}
+                      className="w-full text-center text-xl font-black font-mono py-2 px-10 bg-slate-50 border-2 border-slate-200 focus:border-blue-600 rounded-xl outline-hidden text-slate-900 transition-colors"
+                      placeholder={targetEditModal.type === 'image' ? '200' : '500'}
+                    />
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-xs text-slate-400 font-mono">
+                      KB
+                    </span>
+                  </div>
+                  {targetEditModal.error && (
+                    <p className="text-[10px] font-bold text-red-600">{targetEditModal.error}</p>
+                  )}
+                </div>
+
+                {/* خيارات سريعة شائعة */}
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 block font-semibold">خيارات سريعة:</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(targetEditModal.type === 'image' ? [100, 150, 200, 300] : [250, 350, 500, 700]).map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setTargetEditModal((prev) => ({ ...prev, inputValue: preset.toString(), error: undefined }))}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold font-mono transition-all ${
+                          targetEditModal.inputValue === preset.toString()
+                            ? targetEditModal.type === 'image' ? 'bg-blue-600 text-white shadow-xs' : 'bg-orange-600 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {preset} KB {preset === (targetEditModal.type === 'image' ? 200 : 500) && '★'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* أزرار الحفظ والإلغاء والاستعادة */}
+                <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                  <button
+                    onClick={handleSaveTargetKB}
+                    className={`w-full py-2.5 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-[0.98] ${
+                      targetEditModal.type === 'image' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-600 hover:bg-orange-700'
+                    }`}
+                  >
+                    حفظ وتطبيق الحجم الجديد
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleResetTargetDefault}
+                      className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10.5px] font-semibold transition-all"
+                    >
+                      استعادة الافتراضي ({targetEditModal.type === 'image' ? '200' : '500'} KB)
+                    </button>
+                    <button
+                      onClick={() => setTargetEditModal((prev) => ({ ...prev, isOpen: false }))}
+                      className="py-1.5 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-[10.5px] font-semibold transition-all"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* شريط الإشعار Snackbar */}
           {snackBarMessage && (

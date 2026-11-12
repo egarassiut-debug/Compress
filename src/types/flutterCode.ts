@@ -346,7 +346,7 @@ class FileStorageService {
     name: 'compression_service.dart',
     path: 'lib/services/compression_service.dart',
     language: 'dart',
-    description: 'خوارزمية الضغط بدقة: الصور < 500KB في المعرض، والـ PDF < 500KB، مع نافذة مشاركة سريعة',
+    description: 'خوارزمية الضغط الاحترافية: صور < 200KB و PDF < 500KB مع الحفاظ التام على النصوص والأختام والأبعاد',
     content: `import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
@@ -358,15 +358,15 @@ import 'package:printing/printing.dart';
 import 'file_storage_service.dart';
 
 /// خدمة معالجة وضغط الملفات محلياً لتناسب اشتراطات النيابة العامة ومصر الرقمية
+/// مع الحفاظ التام على وضوح الخطوط والأختام ونسب الصفحات الأصلية
 class CompressionService {
-  // الحد الأقصى الصارم للصور: 480KB لضمان عدم تجاوز 500KB نهائياً
-  static const int maxImageBytes = 480 * 1024; // ~491,520 bytes
+  // الحد الأقصى المستهدف للصور: 195KB لضمان أن تكون أقل من 200KB تماماً
+  static const int targetImageMaxBytes = 195 * 1024; // 195 KB
 
-  // الحد الأقصى المشروط للـ PDF: 450KB لضمان عدم تجاوز 500KB نهائياً
-  static const int strictPdfThresholdBytes = 450 * 1024; // 450 KB
-  static const int maxPdfLimitBytes = 490 * 1024; // ~501,760 bytes
+  // الحد الأقصى المشروط للـ PDF: 485KB لضمان أن يكون أقل من 500KB
+  static const int strictPdfThresholdBytes = 485 * 1024; // 485 KB
 
-  // ==================== أ) تصغير حجم الصورة بحد أقصى 500KB وحفظها بالمعرض ====================
+  // ==================== أ) تصغير حجم الصورة لأقل من 200KB مع الحفاظ على الأختام والتفاصيل ====================
   static Future<File?> compressImageToUnder500KB({
     required File inputFile,
   }) async {
@@ -375,23 +375,32 @@ class CompressionService {
 
     final Uint8List originalBytes = await inputFile.readAsBytes();
 
-    // حد أقصى ذكي للأبعاد: 1280 بكسل للحفاظ على أعلى دقة للأختام والنصوص
-    int targetWidth = 1280;
-    int targetHeight = 1280;
+    // 1. تجنب إعادة الضغط دون داعٍ: إذا كانت الصورة أقل من 195 KB نحفظها مباشرة بجودتها الكاملة 100%
+    if (originalSize <= targetImageMaxBytes) {
+      debugPrint('الصورة مطابقة للاشتراطات بالفعل (< 200 KB) - تم الحفظ بدون خفض الجودة');
+      return await FileStorageService.saveImageToGallerySafely(
+        bytes: originalBytes,
+        prefix: 'manzoma_image',
+      );
+    }
+
+    // 2. دقة أبعاد مرتفعة (حتى 1800 بكسل) مع الحفاظ على نسبة العرض للارتفاع والاتجاه الأصلي
+    int targetWidth = 1800;
+    int targetHeight = 1800;
     final img.Image? decoded = img.decodeImage(originalBytes);
     if (decoded != null) {
       final double ratio = decoded.width / decoded.height;
       if (ratio > 1) {
-        targetWidth = 1280;
-        targetHeight = (1280 / ratio).round();
+        targetWidth = 1800;
+        targetHeight = (1800 / ratio).round();
       } else {
-        targetHeight = 1280;
-        targetWidth = (1280 * ratio).round();
+        targetHeight = 1800;
+        targetWidth = (1800 * ratio).round();
       }
     }
 
-    // جودة ابتدائية ممتازة 70%
-    int quality = 70;
+    // جودة ابتدائية نقية 76% تمنع تشوه الحروف والتوقيعات
+    int quality = 76;
     Uint8List? bestResult = await FlutterImageCompress.compressWithList(
       originalBytes,
       minWidth: targetWidth,
@@ -400,13 +409,22 @@ class CompressionService {
       format: CompressFormat.jpeg,
     );
 
-    // حلقة تقليل الجودة والتحجيم إذا تجاوزت الصورة 480 KB (500 KB)
+    // حلقة موازنة تدريجية هادئة مع احترام الحد الأدنى لجودة المستند (Quality Floor >= 58%)
     int attempts = 0;
-    while (bestResult != null && bestResult.length > maxImageBytes && attempts < 6) {
+    const int minQualityFloor = 58;
+    const int minDimensionFloor = 1200;
+
+    while (bestResult != null && bestResult.length > targetImageMaxBytes && attempts < 5) {
       attempts++;
-      quality = (quality - 10).clamp(25, 70);
-      targetWidth = (targetWidth * 0.85).round();
-      targetHeight = (targetHeight * 0.85).round();
+      if (quality > minQualityFloor + 5) {
+        quality = (quality - 6).clamp(minQualityFloor, 76);
+      } else if (targetWidth > minDimensionFloor && targetHeight > minDimensionFloor) {
+        targetWidth = (targetWidth * 0.90).round().clamp(minDimensionFloor, 1800);
+        targetHeight = (targetHeight * 0.90).round().clamp(minDimensionFloor, 1800);
+        quality = 68; // إعادة رفع الجودة قليلاً عند تقليص الأبعاد
+      } else {
+        break; // نتوقف عند الحد الأدنى لحماية مقروئية المستند
+      }
 
       bestResult = await FlutterImageCompress.compressWithList(
         originalBytes,
@@ -426,7 +444,7 @@ class CompressionService {
     return null;
   }
 
-  // ==================== ب) تصغير حجم ملف PDF لأقل من 500KB مع الحفاظ على الألوان وجودة الخط ====================
+  // ==================== ب) تصغير حجم ملف PDF لأقل من 500KB مع حماية النصوص والأختام ====================
   static Future<File?> compressExistingPdfToUnder500KB({
     required File inputPdf,
   }) async {
@@ -435,28 +453,41 @@ class CompressionService {
 
     final Uint8List originalBytes = await inputPdf.readAsBytes();
 
+    // 1. إذا كان الملف بالفعل أقل من 490 KB، نحتفظ به كاملاً بنصوصه الفيكتورية القابلة للبحث دون تحويله لصور
+    if (originalSize <= strictPdfThresholdBytes) {
+      debugPrint('المستند بالفعل أقل من 500 KB - تم حفظه بنصوصه الأصلية 100%');
+      return await FileStorageService.saveFileToDownloadsSafely(
+        bytes: originalBytes,
+        prefix: 'manzoma_pdf',
+        extension: '.pdf',
+      );
+    }
+
     try {
-      // 1. معالجة الصفحات بدقة 72-96 DPI المعتمدة لدمج ضغط الصور (Image Scaling) قبل إضافتها لمستند الـ PDF
-      // هذه الدقة تمنح حِدة ونقاء تام للخطوط والأختام مع خفض الحجم ليكون أقل من 500 KB حتماً
+      // 2. معالجة الصفحات المصورة بدقة 160 DPI حادة (بدلاً من 72 DPI القديمة التي كانت تسبب التشويش)
+      // مع الحفاظ الصارم على أبعاد ونسب كل صفحة (أفقي أو رأسي) دون أي تمدد
       pw.Document compressedDoc = pw.Document(compress: true);
-      await for (final page in Printing.raster(originalBytes, dpi: 96)) {
+      await for (final page in Printing.raster(originalBytes, dpi: 160)) {
         final imageBytes = await page.toPng();
         final Uint8List? compressedPage = await FlutterImageCompress.compressWithList(
           imageBytes,
-          minWidth: 1024,
-          minHeight: 1024,
-          quality: 72, // جودة نقية تمنع تشويش الخطوط والأختام
+          minWidth: 1500,
+          minHeight: 1500,
+          quality: 74,
           format: CompressFormat.jpeg,
         );
 
         final image = pw.MemoryImage(compressedPage ?? imageBytes);
+        // اعتماد مقاس ونسب الصفحة الأصلية بدقة
+        final pageFormat = PdfPageFormat(page.width.toDouble(), page.height.toDouble());
+
         compressedDoc.addPage(
           pw.Page(
-            pageFormat: PdfPageFormat.a4,
+            pageFormat: pageFormat,
             margin: pw.EdgeInsets.zero,
             build: (context) => pw.FullPage(
               ignoreMargins: true,
-              child: pw.Image(image, fit: pw.BoxFit.fill),
+              child: pw.Image(image, fit: pw.BoxFit.contain),
             ),
           ),
         );
@@ -464,28 +495,30 @@ class CompressionService {
 
       Uint8List finalPdfBytes = await compressedDoc.save();
 
-      // 2. الشرط الصارم: إذا كان حجم ملف الـ PDF الناتج أكبر من 470 KB، إعادة ضغط متدرجة بدقة 72 DPI
+      // 3. إعادة موازنة تدريجية هادئة إذا تجاوز 485 KB مع الالتزام بحد أدنى 130 DPI وجودة 64%
       if (finalPdfBytes.length > strictPdfThresholdBytes) {
-        debugPrint('حجم الـ PDF (\${finalPdfBytes.length ~/ 1024} KB) أكبر من 470 KB، جاري إعادة الضغط بدقة 72 DPI...');
+        debugPrint('حجم الـ PDF (\${finalPdfBytes.length ~/ 1024} KB) يحتاج موازنة هادئة بدقة 135 DPI...');
         final pw.Document strictDoc = pw.Document(compress: true);
-        await for (final page in Printing.raster(originalBytes, dpi: 72)) {
+        await for (final page in Printing.raster(originalBytes, dpi: 135)) {
           final imageBytes = await page.toPng();
           final Uint8List? strictlyCompressed = await FlutterImageCompress.compressWithList(
             imageBytes,
-            minWidth: 850,
-            minHeight: 850,
-            quality: 60,
+            minWidth: 1300,
+            minHeight: 1300,
+            quality: 65,
             format: CompressFormat.jpeg,
           );
 
           final image = pw.MemoryImage(strictlyCompressed ?? imageBytes);
+          final pageFormat = PdfPageFormat(page.width.toDouble(), page.height.toDouble());
+
           strictDoc.addPage(
             pw.Page(
-              pageFormat: PdfPageFormat.a4,
+              pageFormat: pageFormat,
               margin: pw.EdgeInsets.zero,
               build: (context) => pw.FullPage(
                 ignoreMargins: true,
-                child: pw.Image(image, fit: pw.BoxFit.fill),
+                child: pw.Image(image, fit: pw.BoxFit.contain),
               ),
             ),
           );
@@ -515,25 +548,30 @@ class CompressionService {
     if (imageFiles.isEmpty) return null;
 
     final int pageCount = imageFiles.length;
-    int baseDim = 1240;
-    int baseQuality = 68;
+    int baseDim = 1600;
+    int baseQuality = 74;
 
     if (pageCount == 1) {
-      baseDim = 1350;
-      baseQuality = 74;
+      baseDim = 1750;
+      baseQuality = 78;
     } else if (pageCount == 2) {
-      baseDim = 1240;
-      baseQuality = 68;
+      baseDim = 1550;
+      baseQuality = 74;
+    } else if (pageCount <= 5) {
+      baseDim = (1500 - pageCount * 40).clamp(1300, 1600);
+      baseQuality = (74 - pageCount * 2).clamp(65, 74);
     } else {
-      baseDim = (1200 - pageCount * 35).clamp(900, 1200);
-      baseQuality = (66 - pageCount * 2).clamp(50, 68);
+      baseDim = (1350 - pageCount * 25).clamp(1150, 1400);
+      baseQuality = (68 - pageCount * 1).clamp(60, 68);
     }
 
     final pw.Document pdf = pw.Document(compress: true);
     for (final file in imageFiles) {
       final bytes = await file.readAsBytes();
+      final img.Image? decoded = img.decodeImage(bytes);
+      final bool isLandscape = decoded != null && (decoded.width > decoded.height);
 
-      // تحجيم الأبعاد بدقة A4 متوازنة وجودة نقية بالألوان الكاملة
+      // تحجيم الأبعاد بدقة A4 متوازنة مع الحفاظ على الألوان والأختام
       final Uint8List? optimizedBytes = await FlutterImageCompress.compressWithList(
         bytes,
         minWidth: baseDim,
@@ -543,10 +581,12 @@ class CompressionService {
       );
 
       final imageToAdd = pw.MemoryImage(optimizedBytes ?? bytes);
+      final pageFormat = isLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4.portrait;
+
       pdf.addPage(
         pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(12),
+          pageFormat: pageFormat,
+          margin: const pw.EdgeInsets.all(8),
           build: (pw.Context context) {
             return pw.Center(
               child: pw.Image(imageToAdd, fit: pw.BoxFit.contain),
@@ -558,26 +598,31 @@ class CompressionService {
 
     Uint8List pdfBytes = await pdf.save();
 
-    // 2. الشرط الصارم: إذا تجاوز 470 KB، إعادة ضغط متدرج لحفظ الحجم أقل من 500 KB
+    // الشرط الصارم: موازنة تدريجية إذا تجاوز 485 KB مع حماية جودة الخط
     if (pdfBytes.length > strictPdfThresholdBytes) {
-      debugPrint('حجم الـ PDF المدمج (\${pdfBytes.length ~/ 1024} KB) تجاوز 470 KB، إعادة ضبط خفيفة...');
+      debugPrint('حجم الـ PDF المدمج تجاوز 485 KB، موازنة هادئة...');
       final pw.Document strictPdf = pw.Document(compress: true);
 
       for (final file in imageFiles) {
         final bytes = await file.readAsBytes();
+        final img.Image? decoded = img.decodeImage(bytes);
+        final bool isLandscape = decoded != null && (decoded.width > decoded.height);
+
         final Uint8List? reCompressed = await FlutterImageCompress.compressWithList(
           bytes,
           minWidth: (baseDim * 0.90).round(),
           minHeight: (baseDim * 0.90).round(),
-          quality: (baseQuality - 8).clamp(42, 65),
+          quality: (baseQuality - 6).clamp(60, 72),
           format: CompressFormat.jpeg,
         );
 
         final imageToAdd = pw.MemoryImage(reCompressed ?? bytes);
+        final pageFormat = isLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4.portrait;
+
         strictPdf.addPage(
           pw.Page(
-            pageFormat: PdfPageFormat.a4,
-            margin: const pw.EdgeInsets.all(12),
+            pageFormat: pageFormat,
+            margin: const pw.EdgeInsets.all(8),
             build: (pw.Context context) {
               return pw.Center(
                 child: pw.Image(imageToAdd, fit: pw.BoxFit.contain),
@@ -679,13 +724,140 @@ class LawyerFileCompressorApp extends StatelessWidget {
     language: 'dart',
     description: 'الشاشة الرئيسية: الأزرار الثلاثة في المنتصف، والمربع الأزرق لروابط المحاكم في الأسفل، بدون شاشات تسجيل دخول',
     content: `import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'compress_image_screen.dart';
 import 'compress_pdf_screen.dart';
 import 'images_to_pdf_screen.dart';
 import 'legal_portals_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  // القيم الافتراضية المستهدفة: الصور 200KB • الـ PDF 500KB
+  int _targetImageKB = 200;
+  int _targetPdfKB = 500;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _targetImageKB = prefs.getInt('manzoma_target_image_kb') ?? 200;
+        _targetPdfKB = prefs.getInt('manzoma_target_pdf_kb') ?? 500;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _savePreference(String key, int value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(key, value);
+    } catch (_) {}
+  }
+
+  // نافذة تعديل الحجم المستهدف عند الضغط المباشر على الرقم في الشاشة الرئيسية
+  void _showEditTargetDialog(bool isImage) {
+    final currentVal = isImage ? _targetImageKB : _targetPdfKB;
+    final controller = TextEditingController(text: currentVal.toString());
+    String? errorText;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(
+                isImage ? Icons.image_rounded : Icons.picture_as_pdf_rounded,
+                color: isImage ? const Color(0xFF2563EB) : const Color(0xFFEA580C),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isImage ? 'تعديل حجم الصور المستهدف' : 'تعديل حجم PDF المستهدف',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isImage ? 'القيمة الافتراضية: 200 KB' : 'القيمة الافتراضية: 500 KB',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                decoration: InputDecoration(
+                  suffixText: 'KB',
+                  errorText: errorText,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                final def = isImage ? 200 : 500;
+                setState(() {
+                  if (isImage) _targetImageKB = def;
+                  else _targetPdfKB = def;
+                });
+                await _savePreference(
+                  isImage ? 'manzoma_target_image_kb' : 'manzoma_target_pdf_kb',
+                  def,
+                );
+                if (mounted) Navigator.pop(ctx);
+              },
+              child: Text(
+                'استعادة الافتراضي (\${isImage ? "200" : "500"} KB)',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final text = controller.text.trim();
+                final val = int.tryParse(text);
+                if (val == null || val <= 0) {
+                  setDialogState(() {
+                    errorText = 'أدخل رقماً صحيحاً موجباً';
+                  });
+                  return;
+                }
+                setState(() {
+                  if (isImage) _targetImageKB = val;
+                  else _targetPdfKB = val;
+                });
+                await _savePreference(
+                  isImage ? 'manzoma_target_image_kb' : 'manzoma_target_pdf_kb',
+                  val,
+                );
+                if (mounted) Navigator.pop(ctx);
+              },
+              child: const Text('حفظ وتطبيق'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -745,15 +917,16 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
 
-            // 1. تصغير حجم الصورة بدقة لتصبح بحد أقصى 500 KB
+            // 1. تصغير حجم الصور (صورة أو أكثر < 200 KB افتراضياً)
             _ServiceCard(
-              title: 'تصغير حجم الصورة',
-              subtitle: 'ضغط فوتوغرافي عالي الدقة للتوكيلات وبطاقات الرقم القومي بحد أقصى 500 KB مع الحفظ المباشر في المعرض (Gallery).',
-              badgeText: 'بحد أقصى 500 KB',
+              title: 'تصغير حجم الصور (صورة أو أكثر)',
+              subtitle: 'ضغط صور التوكيلات والبطاقات (واحدة أو أكثر) لتصبح أقل من $_targetImageKB KB وحفظها فوراً بالمعرض.',
+              badgeText: '< $_targetImageKB KB',
               badgeColor: const Color(0xFF2563EB),
               icon: Icons.photo_size_select_small_rounded,
               iconBgColor: const Color(0xFFEFF6FF),
               iconColor: const Color(0xFF2563EB),
+              onBadgeTap: () => _showEditTargetDialog(true),
               onTap: () {
                 Navigator.push(
                   context,
@@ -764,15 +937,16 @@ class HomeScreen extends StatelessWidget {
 
             const SizedBox(height: 12),
 
-            // 2. تصغير حجم ملف PDF ليصبح أقل من 500 KB
+            // 2. تصغير حجم ملف PDF (بحد أقصى 500 KB افتراضياً)
             _ServiceCard(
               title: 'تصغير حجم ملف PDF',
-              subtitle: 'تقليص حجم المذكرات وعرائض الشكاوى لأقل من 500 KB مع نافذة مشاركة وحفظ فورية.',
-              badgeText: 'بحد أقصى 500 KB',
+              subtitle: 'تقليص حجم المذكرات وعرائض الشكاوى لأقل من $_targetPdfKB KB مع الحفاظ التام على الألوان والأختام.',
+              badgeText: '< $_targetPdfKB KB',
               badgeColor: const Color(0xFFEA580C),
               icon: Icons.picture_as_pdf_rounded,
               iconBgColor: const Color(0xFFFFF7ED),
               iconColor: const Color(0xFFEA580C),
+              onBadgeTap: () => _showEditTargetDialog(false),
               onTap: () {
                 Navigator.push(
                   context,
@@ -783,15 +957,16 @@ class HomeScreen extends StatelessWidget {
 
             const SizedBox(height: 12),
 
-            // 3. دمج الصور في ملف pdf واحد (بحجم أقل من 500 KB)
+            // 3. دمج الصور في ملف pdf واحد (بحجم أقل من 500 KB افتراضياً)
             _ServiceCard(
               title: 'دمج الصور في ملف pdf واحد',
-              subtitle: 'دمج صور أوراق الجنحة أو حافظة المستندات في ملف PDF موحد لا يتجاوز 500 KB.',
-              badgeText: 'أقل من 500 KB',
+              subtitle: 'دمج صور أوراق الجنحة أو حافظة المستندات في ملف PDF موحد لا يتجاوز $_targetPdfKB KB بالألوان الكاملة.',
+              badgeText: '< $_targetPdfKB KB',
               badgeColor: const Color(0xFF059669),
               icon: Icons.collections_bookmark_rounded,
               iconBgColor: const Color(0xFFECFDF5),
               iconColor: const Color(0xFF059669),
+              onBadgeTap: () => _showEditTargetDialog(false),
               onTap: () {
                 Navigator.push(
                   context,
@@ -943,6 +1118,7 @@ class _ServiceCard extends StatelessWidget {
   final Color iconBgColor;
   final Color iconColor;
   final VoidCallback onTap;
+  final VoidCallback? onBadgeTap;
 
   const _ServiceCard({
     required this.title,
@@ -953,6 +1129,7 @@ class _ServiceCard extends StatelessWidget {
     required this.iconBgColor,
     required this.iconColor,
     required this.onTap,
+    this.onBadgeTap,
   });
 
   @override
@@ -968,23 +1145,36 @@ class _ServiceCard extends StatelessWidget {
         ),
         title: Row(
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
-            ),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: badgeColor.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
+            Expanded(
               child: Text(
-                badgeText,
-                style: TextStyle(
-                  color: badgeColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
+                title,
+                style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
+              ),
+            ),
+            InkWell(
+              onTap: onBadgeTap,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: badgeColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: badgeColor.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      badgeText,
+                      style: TextStyle(
+                        color: badgeColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.edit, size: 10, color: badgeColor),
+                  ],
                 ),
               ),
             ),

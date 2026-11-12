@@ -30,6 +30,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
 
@@ -153,6 +154,15 @@ public class MainActivity extends Activity {
         });
     }
 
+    // إعدادات الحجم المستهدف القابلة للتعديل والمحفوظة محلياً (افتراضي: الصور 200KB، الـ PDF 500KB)
+    private int getTargetImageKb() {
+        return getSharedPreferences("manzoma_prefs", MODE_PRIVATE).getInt("manzoma_target_image_kb", 200);
+    }
+
+    private int getTargetPdfKb() {
+        return getSharedPreferences("manzoma_prefs", MODE_PRIVATE).getInt("manzoma_target_pdf_kb", 500);
+    }
+
     private void requestAppPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             ArrayList<String> perms = new ArrayList<String>();
@@ -244,7 +254,7 @@ public class MainActivity extends Activity {
     // ==================== 1. ضغط صورة أو أكثر دفعة واحدة في الأمر الواحد (< 200 KB) ====================
     private void compressAndSaveImagesBatch(List<Uri> uris) throws Exception {
         int total = uris.size();
-        tvStatus.setText("⏳ جاري ضغط وحفظ " + total + " صورة بالألوان الكاملة (< 200 KB)...");
+        tvStatus.setText("⏳ جاري معالجة وحفظ " + total + " صورة بالألوان الكاملة (< 200 KB)...");
 
         long totalBytesSaved = 0;
         File mostRecentFile = null;
@@ -252,25 +262,49 @@ public class MainActivity extends Activity {
         for (int i = 0; i < total; i++) {
             Uri uri = uris.get(i);
             InputStream is = getContentResolver().openInputStream(uri);
-            Bitmap original = BitmapFactory.decodeStream(is);
+            ByteArrayOutputStream rawBuf = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int r;
+            while ((r = is.read(buf, 0, buf.length)) != -1) {
+                rawBuf.write(buf, 0, r);
+            }
             if (is != null) is.close();
 
+            byte[] rawBytes = rawBuf.toByteArray();
+            int targetLimit = (int) (getTargetImageKb() * 1024 * 0.96);
+
+            // 1. إذا كان الملف بالفعل أقل من الحجم المستهدف، نحفظه مباشرة بجودته الأصلية 100% دون إعادة ضغط
+            if (rawBytes.length <= targetLimit) {
+                File savedFile = saveImageToPhoneGallery(rawBytes, "manzoma_img_" + System.currentTimeMillis() + "_" + (i + 1) + ".jpg");
+                totalBytesSaved += savedFile.length();
+                mostRecentFile = savedFile;
+                continue;
+            }
+
+            Bitmap original = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length);
             if (original == null) continue;
 
-            // خوارزمية ترشيح عالية الجودة (Lanczos/Bicubic Filtering) مع الحفاظ على الألوان 24-bit
-            Bitmap scaled = highQualityResample(original, 1200);
+            // خوارزمية ترشيح عالية الجودة بأبعاد تصل إلى 1800 بكسل لحفظ الأختام والخطوط الدقيقة
+            Bitmap scaled = highQualityResample(original, 1800);
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            int quality = 72; // جودة عالية حادة للنصوص والأختام
+            int quality = 76; // جودة عالية حادة للنصوص والأختام
             scaled.compress(Bitmap.CompressFormat.JPEG, quality, baos);
 
-            // شرط صارم: حجم الصورة أقل من 185 KB لضمان أن تكون أقل من 200 KB تماماً
+            // موازنة تدريجية هادئة مع احترام الحد الأدنى لجودة المستند (Quality Floor >= 58%)
             int attempts = 0;
-            while (baos.toByteArray().length > 185 * 1024 && attempts < 6) {
+            int currentDim = 1800;
+            while (baos.toByteArray().length > targetLimit && attempts < 5) {
                 attempts++;
-                quality = Math.max(30, quality - 8);
-                int nextDim = Math.round(Math.max(scaled.getWidth(), scaled.getHeight()) * 0.88f);
-                scaled = highQualityResample(scaled, nextDim);
+                if (quality > 64) {
+                    quality = Math.max(58, quality - 6);
+                } else if (currentDim > 1200) {
+                    currentDim = Math.max(1200, Math.round(currentDim * 0.90f));
+                    scaled = highQualityResample(original, currentDim);
+                    quality = 68;
+                } else {
+                    break; // نتوقف عند الحد الأدنى لحماية مقروئية المستند
+                }
                 baos.reset();
                 scaled.compress(Bitmap.CompressFormat.JPEG, quality, baos);
             }
@@ -394,8 +428,8 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // إنشاء ملف PDF مع الحفاظ على الألوان والأختام الأصلية، ودقة متوازنة A4 وحجم أقل من 500 KB
-        byte[] pdfBytes = createStrictOptimizedPdf(bitmaps, 1280, 70);
+        // إنشاء ملف PDF عالي الدقة مع الحفاظ على الألوان والأختام
+        byte[] pdfBytes = createStrictOptimizedPdf(bitmaps, 1600, 74);
 
         File savedFile = saveBytesToStorage(pdfBytes, "manzoma_merged", ".pdf");
         long finalKb = savedFile.length() / 1024;
@@ -422,7 +456,9 @@ public class MainActivity extends Activity {
 
         byte[] finalPdfBytes;
 
-        if (inputBytes.length <= 460 * 1024) {
+        // 1. إذا كان الملف بالفعل أقل من الحجم المستهدف، نحتفظ به كاملاً بنصوصه الفيكتورية القابلة للبحث دون تشويه
+        int targetPdfLimit = (int) (getTargetPdfKb() * 1024 * 0.96);
+        if (inputBytes.length <= targetPdfLimit) {
             finalPdfBytes = inputBytes;
         } else {
             ArrayList<Bitmap> pageBitmaps = new ArrayList<Bitmap>();
@@ -445,8 +481,8 @@ public class MainActivity extends Activity {
                     int pageCount = renderer.getPageCount();
                     for (int i = 0; i < pageCount; i++) {
                         PdfRenderer.Page page = renderer.openPage(i);
-                        // دقة متوازنة وحادة للكتابة تناسب A4 (150 DPI) لمنع التبكسل والتشويش
-                        int targetWidth = 1240;
+                        // دقة حادة للكتابة تناسب A4 (160-180 DPI) تمنع التبكسل والتشويش
+                        int targetWidth = 1500;
                         int targetHeight = Math.max(1, Math.round((float) page.getHeight() / page.getWidth() * targetWidth));
                         Bitmap pageBmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
                         pageBmp.eraseColor(0xFFFFFFFF);
@@ -468,7 +504,7 @@ public class MainActivity extends Activity {
             }
 
             if (!pageBitmaps.isEmpty()) {
-                finalPdfBytes = createStrictOptimizedPdf(pageBitmaps, 1240, 68);
+                finalPdfBytes = createStrictOptimizedPdf(pageBitmaps, 1500, 72);
             } else {
                 finalPdfBytes = inputBytes;
             }
@@ -537,83 +573,146 @@ public class MainActivity extends Activity {
         int maxDim = initialMaxDim;
         int quality = initialQuality;
 
-        // ميزانية ذكية للأبعاد والجودة بحسب عدد الصفحات لضمان دقة A4 مثالية
+        // ميزانية ذكية للأبعاد والجودة بحسب عدد الصفحات لضمان أعلى وضوح تحت 500 KB
         if (count == 1) {
-            maxDim = 1350;
-            quality = 74;
+            maxDim = 1750;
+            quality = 78;
         } else if (count == 2) {
-            maxDim = 1240;
-            quality = 68;
-        } else if (count >= 3) {
-            maxDim = Math.max(950, 1200 - (count * 35));
-            quality = Math.max(52, 66 - (count * 2));
+            maxDim = 1550;
+            quality = 74;
+        } else if (count <= 5) {
+            maxDim = Math.max(1300, 1500 - (count * 40));
+            quality = Math.max(64, 74 - (count * 2));
+        } else {
+            maxDim = Math.max(1150, 1350 - (count * 25));
+            quality = Math.max(60, 68 - count);
         }
 
-        byte[] pdfBytes = renderBitmapsToPdf(bitmaps, maxDim, quality);
+        byte[] pdfBytes = renderBitmapsToDirectJpegPdf(bitmaps, maxDim, quality);
 
-        // حلقة ضبط تدريجية: إذا تجاوز الملف 460 KB، تقليل متدرج طفيف يمنع التبكسل ويضمن الحجم < 500 KB
+        // حلقة موازنة تدريجية هادئة مع احترام الحد الأدنى لسلامة المستند
         int attempts = 0;
-        while (pdfBytes.length > 460 * 1024 && attempts < 5) {
+        int targetPdfLimit = (int) (getTargetPdfKb() * 1024 * 0.96);
+        while (pdfBytes.length > targetPdfLimit && attempts < 4) {
             attempts++;
-            quality = Math.max(42, quality - 6);
-            maxDim = Math.round(maxDim * 0.90f);
-            pdfBytes = renderBitmapsToPdf(bitmaps, maxDim, quality);
+            if (quality > 64) {
+                quality = Math.max(58, quality - 6);
+            } else if (maxDim > 1150) {
+                maxDim = Math.max(1150, Math.round(maxDim * 0.90f));
+                quality = 66;
+            } else {
+                break; // نتوقف عند الحد الأدنى لحماية وضوح المستند
+            }
+            pdfBytes = renderBitmapsToDirectJpegPdf(bitmaps, maxDim, quality);
         }
 
         return pdfBytes;
     }
 
-    private byte[] renderBitmapsToPdf(List<Bitmap> bitmaps, int maxDim, int quality) throws Exception {
-        PdfDocument document = new PdfDocument();
-        int pageIndex = 1;
-
-        // إعدادات فرشاة الرسم للحفاظ على نعومة الخطوط وحِدة الحروف والأختام
-        Paint paint = new Paint();
-        paint.setAntiAlias(true);
-        paint.setFilterBitmap(true);
-        paint.setDither(true);
+    private byte[] renderBitmapsToDirectJpegPdf(List<Bitmap> bitmaps, int maxDim, int quality) throws Exception {
+        ArrayList<byte[]> jpegList = new ArrayList<byte[]>();
+        ArrayList<int[]> dimList = new ArrayList<int[]>();
 
         for (Bitmap bmp : bitmaps) {
             if (bmp == null) continue;
 
-            // 1. تحجيم الأبعاد بنسبة DPI متوازنة (72 - 96 DPI) لحفظ التفاصيل تحت 500 KB
+            // 1. تصغير الأبعاد هندسياً أولاً بدقة عالية
             Bitmap scaled = highQualityResample(bmp, maxDim);
 
-            // 2. ضغط كـ JPEG بالألوان الكاملة 24-bit (بدون أي تحويل لأبيض وأسود)
+            // 2. ضغط JPEG محكوم مع الحفاظ التام على الألوان والأختام
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             scaled.compress(Bitmap.CompressFormat.JPEG, quality, baos);
-            byte[] compressedBytes = baos.toByteArray();
+            byte[] jpegBytes = baos.toByteArray();
 
-            BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inPreferredConfig = Bitmap.Config.ARGB_8888; // الحفاظ التام على ألوان الأختام والتوقيعات
-            Bitmap compressedBmp = BitmapFactory.decodeByteArray(compressedBytes, 0, compressedBytes.length, opts);
-            if (compressedBmp == null) {
-                compressedBmp = scaled;
-            }
-
-            // 3. مقاس صفحة A4 قياسي: 595 x 842 points (بدون هوامش مضيعة للمساحة)
-            PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(595, 842, pageIndex++).create();
-            PdfDocument.Page page = document.startPage(pageInfo);
-            Canvas canvas = page.getCanvas();
-
-            int margin = 12;
-            int availW = 595 - (margin * 2);
-            int availH = 842 - (margin * 2);
-
-            float scaleFit = Math.min((float) availW / compressedBmp.getWidth(), (float) availH / compressedBmp.getHeight());
-            int drawW = Math.round(compressedBmp.getWidth() * scaleFit);
-            int drawH = Math.round(compressedBmp.getHeight() * scaleFit);
-            int posX = margin + (availW - drawW) / 2;
-            int posY = margin + (availH - drawH) / 2;
-
-            canvas.drawBitmap(compressedBmp, null, new android.graphics.Rect(posX, posY, posX + drawW, posY + drawH), paint);
-            document.finishPage(page);
+            jpegList.add(jpegBytes);
+            dimList.add(new int[]{ scaled.getWidth(), scaled.getHeight() });
         }
 
-        ByteArrayOutputStream pdfOut = new ByteArrayOutputStream();
-        document.writeTo(pdfOut);
-        document.close();
-        return pdfOut.toByteArray();
+        // 3. بناء ملف الـ PDF عبر دمج تدفقات JPEG الحقيقية مباشرة (/Filter /DCTDecode)
+        return buildPdfFromJpegStreams(jpegList, dimList);
+    }
+
+    // بناء هيكل PDF 1.4 قياسي مع احترام اتجاه كل صفحة (أفقي أو رأسي) دون قص أو تشويه
+    private byte[] buildPdfFromJpegStreams(List<byte[]> jpegList, List<int[]> dimList) throws Exception {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ArrayList<Long> offsets = new ArrayList<Long>();
+
+        baos.write("%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n".getBytes("ISO-8859-1"));
+
+        int pageCount = jpegList.size();
+
+        // 1 0 obj: Catalog
+        offsets.add((long) baos.size());
+        baos.write("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".getBytes("ISO-8859-1"));
+
+        // 2 0 obj: Pages
+        offsets.add((long) baos.size());
+        StringBuilder kids = new StringBuilder();
+        for (int i = 0; i < pageCount; i++) {
+            kids.append((3 + i * 3)).append(" 0 R ");
+        }
+        baos.write(("2 0 obj\n<< /Type /Pages /Kids [" + kids.toString() + "] /Count " + pageCount + " >>\nendobj\n").getBytes("ISO-8859-1"));
+
+        float a4Short = 595.28f;
+        float a4Long = 841.89f;
+
+        for (int i = 0; i < pageCount; i++) {
+            byte[] jpeg = jpegList.get(i);
+            int[] dims = dimList.get(i);
+            int imgW = dims[0];
+            int imgH = dims[1];
+
+            boolean isLandscape = imgW > imgH;
+            float pageWidth = isLandscape ? a4Long : a4Short;
+            float pageHeight = isLandscape ? a4Short : a4Long;
+
+            int pageObjNum = 3 + i * 3;
+            int imgObjNum = 4 + i * 3;
+            int contentObjNum = 5 + i * 3;
+
+            // Page Object
+            offsets.add((long) baos.size());
+            baos.write((pageObjNum + " 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + pageWidth + " " + pageHeight + "] " +
+                "/Resources << /XObject << /Im" + (i + 1) + " " + imgObjNum + " 0 R >> >> " +
+                "/Contents " + contentObjNum + " 0 R >>\nendobj\n").getBytes("ISO-8859-1"));
+
+            // Image XObject with direct /Filter /DCTDecode
+            offsets.add((long) baos.size());
+            baos.write((imgObjNum + " 0 obj\n<< /Type /XObject /Subtype /Image /Width " + imgW + " /Height " + imgH +
+                " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " + jpeg.length + " >>\nstream\n").getBytes("ISO-8859-1"));
+            baos.write(jpeg);
+            baos.write("\nendstream\nendobj\n".getBytes("ISO-8859-1"));
+
+            // Content Stream (scaled to fit page preserving aspect ratio)
+            float margin = 8f;
+            float maxW = pageWidth - (margin * 2);
+            float maxH = pageHeight - (margin * 2);
+            float scale = Math.min(maxW / imgW, maxH / imgH);
+            float renderW = imgW * scale;
+            float renderH = imgH * scale;
+            float posX = margin + (maxW - renderW) / 2f;
+            float posY = margin + (maxH - renderH) / 2f;
+
+            String contentStr = String.format(Locale.US, "q\n%.2f 0 0 %.2f %.2f %.2f cm\n/Im%d Do\nQ\n",
+                renderW, renderH, posX, posY, (i + 1));
+            byte[] contentBytes = contentStr.getBytes("ISO-8859-1");
+
+            offsets.add((long) baos.size());
+            baos.write((contentObjNum + " 0 obj\n<< /Length " + contentBytes.length + " >>\nstream\n").getBytes("ISO-8859-1"));
+            baos.write(contentBytes);
+            baos.write("endstream\nendobj\n".getBytes("ISO-8859-1"));
+        }
+
+        long xrefPos = baos.size();
+        int totalObjs = 1 + pageCount * 3;
+        baos.write(("xref\n0 " + (totalObjs + 1) + "\n0000000000 65535 f \n").getBytes("ISO-8859-1"));
+        for (long off : offsets) {
+            baos.write(String.format(Locale.US, "%010d 00000 n \n", off).getBytes("ISO-8859-1"));
+        }
+
+        baos.write(("trailer\n<< /Size " + (totalObjs + 1) + " /Root 1 0 R >>\nstartxref\n" + xrefPos + "\n%%EOF\n").getBytes("ISO-8859-1"));
+
+        return baos.toByteArray();
     }
 
     // حفظ آمن للملف في مجلد التنزيلات أو المستندات

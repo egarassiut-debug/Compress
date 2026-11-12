@@ -1,4 +1,10 @@
 import { PDFDocument } from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// تعيين مسار الـ worker لمكتبة pdfjs
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+}
 
 export interface CompressionResult {
   blob: Blob;
@@ -21,8 +27,8 @@ export interface CompressionProgress {
 }
 
 /**
- * خوارزمية ترشيح عالية الدقة (Lanczos / High-Quality Stepped Resampling)
- * تمنع التشويش والتبكسل وتحافظ على حدة الخطوط والأختام الدقيقة
+ * خوارزمية ترشيح عالية الدقة (High-Quality Stepped Downsampling)
+ * تمنع التشويش والتبكسل وتضمن بقاء الأختام والخطوط الدقيقة حادة وواضحة
  */
 function highQualityResizeCanvas(
   source: HTMLImageElement | HTMLCanvasElement,
@@ -32,11 +38,25 @@ function highQualityResizeCanvas(
   let curW = source.width;
   let curH = source.height;
 
-  // إذا كان التصغير كبيراً، نقوم بالتصغير المتدرج (Stepped Downsampling) لمنع التعرج وفقدان التفاصيل
+  // إذا كانت الأبعاد المستهدفة مساوية أو أكبر، نرسم مباشرة
+  if (curW <= targetWidth && curH <= targetHeight) {
+    const directCanvas = document.createElement('canvas');
+    directCanvas.width = targetWidth;
+    directCanvas.height = targetHeight;
+    const directCtx = directCanvas.getContext('2d', { willReadFrequently: false })!;
+    directCtx.imageSmoothingEnabled = true;
+    directCtx.imageSmoothingQuality = 'high';
+    directCtx.fillStyle = '#FFFFFF';
+    directCtx.fillRect(0, 0, targetWidth, targetHeight);
+    directCtx.drawImage(source, 0, 0, targetWidth, targetHeight);
+    return directCanvas;
+  }
+
+  // تصغير متدرج ناعم (Stepped Resampling) لمنع تكسر حواف الحروف وفقدان الأختام
   let currentCanvas = document.createElement('canvas');
   currentCanvas.width = curW;
   currentCanvas.height = curH;
-  let ctx = currentCanvas.getContext('2d')!;
+  let ctx = currentCanvas.getContext('2d', { willReadFrequently: false })!;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(source, 0, 0, curW, curH);
@@ -47,18 +67,18 @@ function highQualityResizeCanvas(
     const stepCanvas = document.createElement('canvas');
     stepCanvas.width = curW;
     stepCanvas.height = curH;
-    const stepCtx = stepCanvas.getContext('2d')!;
+    const stepCtx = stepCanvas.getContext('2d', { willReadFrequently: false })!;
     stepCtx.imageSmoothingEnabled = true;
     stepCtx.imageSmoothingQuality = 'high';
     stepCtx.drawImage(currentCanvas, 0, 0, curW, curH);
     currentCanvas = stepCanvas;
   }
 
-  // الرسم النهائي بالأبعاد المستهدفة بدقة عالية
+  // الرسم النهائي بالأبعاد المحددة بأعلى دقة
   const finalCanvas = document.createElement('canvas');
   finalCanvas.width = targetWidth;
   finalCanvas.height = targetHeight;
-  const finalCtx = finalCanvas.getContext('2d')!;
+  const finalCtx = finalCanvas.getContext('2d', { willReadFrequently: false })!;
   finalCtx.imageSmoothingEnabled = true;
   finalCtx.imageSmoothingQuality = 'high';
   finalCtx.fillStyle = '#FFFFFF';
@@ -69,120 +89,156 @@ function highQualityResizeCanvas(
 }
 
 /**
- * خوارزمية صارمة لضغط الصورة الفردية لتكون حتماً أقل من 200KB
- * - ترشيح عالي الدقة يمنع التبكسل والتشويش
- * - الحفاظ التام على الألوان والأختام الأصلية (أحمر، أزرق، ذهبي)
- * - حجم صارم أقل من 200 KB
- * - دعم مؤشر التقدم الشفاف (Progress Indicator)
+ * ضغط ذكي وعالي الجودة للصور الفردية:
+ * 1. إذا كان حجم الصورة الأصلي أقل من 200 KB بالفعل، نتجنب إعادة الضغط لحماية الجودة.
+ * 2. الحفاظ التام على أبعاد ونسب الصورة الأصلية واتجاهها الصحيح.
+ * 3. دقة أبعاد مرتفعة (حتى 1800-2000 بكسل) تمنع تشويش الحروف الصغيرة والأختام الرسمية.
+ * 4. حد أدنى صارم للجودة (Quality Floor >= 58%) لعدم الإضرار بوضوح المستند.
  */
 export async function compressImageClient(
   file: File,
-  targetMaxBytes = 185 * 1024, // 185 KB لضمان أن تكون دائماً أقل من 200 KB تماماً
+  targetMaxBytes = 195 * 1024, // 195 KB لضمان أن تكون أقل من 200 KB
   onProgress?: (progress: CompressionProgress) => void
 ): Promise<CompressionResult> {
   const originalSize = file.size;
 
   onProgress?.({
-    stage: 'قراءة وفحص الصورة الأصلية',
+    stage: 'فحص المستند والصورة الأصلية',
     percent: 15,
     originalSize,
     currentSize: originalSize,
     targetMax: targetMaxBytes,
-    detail: 'فحص الأبعاد والأختام الملونة وخلفية المستند',
+    detail: 'تحليل دقة المستند والأختام الملونة وحجم الملف',
   });
+
+  // قاعدة أساسية: إذا كانت الصورة بالفعل أقل من الحجم المستهدف، لا نعيد ضغطها دون داعٍ
+  if (originalSize <= targetMaxBytes) {
+    onProgress?.({
+      stage: 'الصورة مطابقة للاشتراطات بالفعل (< 200 KB)',
+      percent: 100,
+      originalSize,
+      currentSize: originalSize,
+      targetMax: targetMaxBytes,
+      detail: `الحجم الأصلي: ${(originalSize / 1024).toFixed(1)} KB - تم الحفظ بجودتها الكاملة الأصلية 100%`,
+    });
+
+    const url = URL.createObjectURL(file);
+    return {
+      blob: file,
+      url,
+      originalSize,
+      compressedSize: originalSize,
+      reductionPercentage: 0,
+      name: file.name,
+    };
+  }
 
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('فشل قراءة ملف الصورة'));
     reader.onload = async (e) => {
       onProgress?.({
-        stage: 'فك التشفير وتحليل التفاصيل',
+        stage: 'فك تشفير الصورة وتحليل التفاصيل',
         percent: 30,
         originalSize,
         currentSize: Math.round(originalSize * 0.9),
         targetMax: targetMaxBytes,
-        detail: 'تجهيز مصفوفات البكسل ومعايرة الألوان',
+        detail: 'معايرة الألوان 24-bit والحفاظ على التوقيعات والمداد الأزرق والأحمر',
       });
 
       const img = new Image();
       img.onerror = () => reject(new Error('فشل فك تشفير الصورة'));
       img.onload = async () => {
-        let maxDimension = 1200; // دقة متوازنة تناسب قراءة المحاكم والنيابة
+        // نبدأ بدقة أبعاد عالية (1800 بكسل) تتيح قراءة أدق البنود القانونية
+        let maxDimension = Math.min(Math.max(img.width, img.height), 1800);
         let width = img.width;
         let height = img.height;
 
-        if (width > maxDimension || height > maxDimension) {
-          const ratio = width / height;
-          if (width > height) {
+        const ratio = width / height;
+        if (width > height) {
+          if (width > maxDimension) {
             width = maxDimension;
             height = Math.round(maxDimension / ratio);
-          } else {
+          }
+        } else {
+          if (height > maxDimension) {
             height = maxDimension;
             width = Math.round(maxDimension * ratio);
           }
         }
 
         onProgress?.({
-          stage: 'ترشيح متدرج عالي الدقة (Lanczos)',
-          percent: 55,
+          stage: 'ترشيح متدرج فائق النقاء (Stepped Resampling)',
+          percent: 50,
           originalSize,
-          currentSize: Math.round(originalSize * 0.55),
+          currentSize: Math.round(originalSize * 0.6),
           targetMax: targetMaxBytes,
-          detail: 'الحفاظ التام على أختام النسر والتوقيعات والمداد الأزرق والأحمر',
+          detail: `الأبعاد: ${width}×${height} بكسل • دقة واضحة لأختام النسر والتوقيعات`,
         });
 
         let canvas = highQualityResizeCanvas(img, width, height);
 
-        // جودة ابتدائية 72% لوضوح فائق للأختام والنصوص
-        let quality = 0.72;
+        // جودة ابتدائية نقية 78% تمنع تشوه الحروف
+        let quality = 0.78;
         let bestBlob: Blob | null = await new Promise<Blob | null>((res) =>
           canvas.toBlob((b) => res(b), 'image/jpeg', quality)
         );
 
         onProgress?.({
-          stage: 'ضغط متوازن ومطابقة معيار النيابة',
+          stage: 'موازنة الحجم والدقة',
           percent: 75,
           originalSize,
           currentSize: bestBlob?.size || Math.round(originalSize * 0.4),
           targetMax: targetMaxBytes,
-          detail: bestBlob ? `الحجم الحالي: ${(bestBlob.size / 1024).toFixed(1)} KB` : 'قياس حجم الملف المضغوط',
+          detail: bestBlob ? `الحجم الحالي: ${(bestBlob.size / 1024).toFixed(1)} KB` : 'قياس حجم الملف',
         });
 
-        // شرط صارم: إذا كان الحجم أكبر من 185 KB، إعادة الضغط وتقليص الأبعاد بتدرج ناعم
+        // حلقة ضبط ذكية تدريجية تحافظ على وضوح المستند:
+        // نضبط الجودة أولاً دون تخفيض الأبعاد بشكل مبالغ فيه
         let attempts = 0;
-        while (bestBlob && bestBlob.size > targetMaxBytes && attempts < 6) {
+        const minQualityFloor = 0.58; // لا ننزل عن 58% لمنع التبكسل والتشويش
+        const minDimensionFloor = 1200; // لا ننزل عن 1200 بكسل لقراءة النصوص الصغيرة
+
+        while (bestBlob && bestBlob.size > targetMaxBytes && attempts < 5) {
           attempts++;
-          quality = Math.max(0.32, quality - 0.08);
-          maxDimension = Math.round(maxDimension * 0.88);
 
-          const ratio = img.width / img.height;
-          if (img.width > img.height) {
-            width = maxDimension;
-            height = Math.round(maxDimension / ratio);
+          if (quality > minQualityFloor + 0.05) {
+            // تخفيض طفيف متدرج للجودة مع الحفاظ على الأبعاد العالية
+            quality = Math.max(minQualityFloor, quality - 0.06);
+          } else if (maxDimension > minDimensionFloor) {
+            // تقليص تدريجي هادئ للأبعاد بنسبة 10% فقط عند الضرورة
+            maxDimension = Math.max(minDimensionFloor, Math.round(maxDimension * 0.90));
+            if (img.width > img.height) {
+              width = maxDimension;
+              height = Math.round(maxDimension / ratio);
+            } else {
+              height = maxDimension;
+              width = Math.round(maxDimension * ratio);
+            }
+            canvas = highQualityResizeCanvas(img, width, height);
+            quality = 0.68; // إعادة رفع الجودة قليلاً عند تصغير الأبعاد
           } else {
-            height = maxDimension;
-            width = Math.round(maxDimension * ratio);
+            // وصلنا للحد الأدنى المقبول للجودة - نتوقف لحماية وضوح المستند
+            break;
           }
-
-          canvas = highQualityResizeCanvas(img, width, height);
 
           bestBlob = await new Promise<Blob | null>((res) =>
             canvas.toBlob((b) => res(b), 'image/jpeg', quality)
           );
 
           onProgress?.({
-            stage: `تحسين إضافي لاشتراط < 200 KB (خطوة ${attempts})`,
-            percent: Math.min(92, 75 + attempts * 3),
+            stage: `موازنة تدريجية للمستند (خطوة ${attempts})`,
+            percent: Math.min(94, 75 + attempts * 4),
             originalSize,
             currentSize: bestBlob?.size || targetMaxBytes,
             targetMax: targetMaxBytes,
-            detail: `الحجم الحالي: ${((bestBlob?.size || 0) / 1024).toFixed(1)} KB`,
+            detail: `الحجم: ${((bestBlob?.size || 0) / 1024).toFixed(1)} KB • الجودة: ${Math.round(quality * 100)}%`,
           });
         }
 
         if (!bestBlob) {
           bestBlob = await new Promise<Blob>((res) =>
-            canvas.toBlob((b) => res(b || new Blob()), 'image/jpeg', 0.45)
+            canvas.toBlob((b) => res(b || new Blob()), 'image/jpeg', 0.65)
           );
         }
 
@@ -194,7 +250,7 @@ export async function compressImageClient(
         const url = URL.createObjectURL(bestBlob);
 
         onProgress?.({
-          stage: 'اكتمل الضغط بنجاح وجاهز للحفظ بالمعرض',
+          stage: 'اكتملت المعالجة بنقاء فائق وجاهز للحفظ بالمعرض',
           percent: 100,
           originalSize,
           currentSize: compressedSize,
@@ -208,7 +264,7 @@ export async function compressImageClient(
           originalSize,
           compressedSize,
           reductionPercentage,
-          name: file.name.replace(/\.[^/.]+$/, '') + '_under200kb.jpg',
+          name: file.name.replace(/\.[^/.]+$/, '') + '_compressed.jpg',
         });
       };
       img.src = e.target?.result as string;
@@ -218,11 +274,11 @@ export async function compressImageClient(
 }
 
 /**
- * ضغط مجموعة من الصور في الأمر الواحد دفعة واحدة مع مؤشر شفاف تفاعلي
+ * ضغط مجموعة من الصور في الأمر الواحد دفعة واحدة
  */
 export async function compressMultipleImagesClient(
   files: File[],
-  targetMaxBytes = 185 * 1024,
+  targetMaxBytes = 195 * 1024,
   onProgress?: (progress: CompressionProgress) => void
 ): Promise<CompressionResult[]> {
   const totalOriginalSize = files.reduce((acc, f) => acc + f.size, 0);
@@ -235,20 +291,20 @@ export async function compressMultipleImagesClient(
     const totalPages = files.length;
 
     onProgress?.({
-      stage: `معالجة صورة ${pageNum} من ${totalPages}`,
+      stage: `معالجة مستند ${pageNum} من ${totalPages}`,
       percent: Math.round((i / totalPages) * 100),
       originalSize: totalOriginalSize,
       currentSize: currentAccumulatedSize || Math.round(totalOriginalSize * 0.8),
       currentPage: pageNum,
       totalPages,
       targetMax: targetMaxBytes * totalPages,
-      detail: `اسم الملف: ${file.name.substring(0, 18)}`,
+      detail: `اسم الملف: ${file.name.substring(0, 20)}`,
     });
 
     const result = await compressImageClient(file, targetMaxBytes, (subProg) => {
       const overallPercent = Math.round(((i + subProg.percent / 100) / totalPages) * 100);
       onProgress?.({
-        stage: `صورة ${pageNum}/${totalPages}: ${subProg.stage}`,
+        stage: `مستند ${pageNum}/${totalPages}: ${subProg.stage}`,
         percent: overallPercent,
         originalSize: totalOriginalSize,
         currentSize: currentAccumulatedSize + subProg.currentSize,
@@ -264,7 +320,7 @@ export async function compressMultipleImagesClient(
   }
 
   onProgress?.({
-    stage: `اكتمل ضغط كافة الصور (${results.length} صور)`,
+    stage: `اكتملت معالجة كافة الصور بنجاح (${results.length} مستندات)`,
     percent: 100,
     originalSize: totalOriginalSize,
     currentSize: currentAccumulatedSize,
@@ -277,15 +333,14 @@ export async function compressMultipleImagesClient(
 }
 
 /**
- * دمج مجموعة صور في ملف PDF واحد عالي الدقة مع الحفاظ التام على الألوان والأختام
- * - الحفاظ التام على الألوان الأصلية (أختام حمراء وزرقاء، توقيعات، ورق رسمي) دون أي تحويل للأبيض والأسود
- * - دقة متوازنة وحادة للكتابة والنصوص تناسب مقاس A4 وتمنع أي تشويش أو تبكسل (150 DPI)
- * - ضمان برمجي صارم: حجم الملف النهائي أقل من 500 KB حتماً
- * - دعم مؤشر التقدم الشفاف (Progress Indicator)
+ * دمج مجموعة صور في ملف PDF واحد عالي الدقة:
+ * - الحفاظ على اتجاه كل صفحة (أفقي Landscape أو رأسي Portrait) بناءً على أبعاد الصورة الأصلية دون قص أو تمدد.
+ * - دقة متوازنة وحادة للكتابة والأختام الرسمية (150-180 DPI).
+ * - استهداف أقل من 500 KB مع الحفاظ على وضوح المستند.
  */
 export async function mergeImagesToPdfClient(
   files: File[],
-  strictMaxThreshold = 470 * 1024, // 470 KB لضمان أن يكون الناتج أقل من 500 KB تماماً
+  strictMaxThreshold = 480 * 1024,
   onProgress?: (progress: CompressionProgress) => void
 ): Promise<CompressionResult> {
   const totalOriginalSize = files.reduce((acc, f) => acc + f.size, 0);
@@ -298,10 +353,9 @@ export async function mergeImagesToPdfClient(
     currentSize: totalOriginalSize,
     totalPages: pageCount,
     targetMax: strictMaxThreshold,
-    detail: `إجمالي الصفحات: ${pageCount} ورقة • تحليل أبعاد الصور`,
+    detail: `إجمالي الصفحات: ${pageCount} ورقة • تحليل أبعاد واتجاهات المستندات`,
   });
 
-  // دالة مساعدة لإنشاء PDF بمواصفات أبعاد وجودة محددة مع الحفاظ على الألوان الكاملة
   const generatePdfWithParams = async (
     maxDim: number,
     quality: number,
@@ -316,14 +370,14 @@ export async function mergeImagesToPdfClient(
 
       if (reportStep) {
         onProgress?.({
-          stage: `معالجة ورقة ${pageIndex} من ${pageCount} بالألوان الكاملة`,
-          percent: Math.round(15 + (pageIndex / pageCount) * 60),
+          stage: `معالجة ورقة ${pageIndex} من ${pageCount} بدقة عالية`,
+          percent: Math.round(15 + (pageIndex / pageCount) * 65),
           originalSize: totalOriginalSize,
           currentSize: runningBytes || Math.round((pageIndex / pageCount) * totalOriginalSize * 0.4),
           currentPage: pageIndex,
           totalPages: pageCount,
           targetMax: strictMaxThreshold,
-          detail: `تحسين حِدة الأختام والخطوط لمقاس A4 القياسي`,
+          detail: 'الحفاظ على أبعاد ونسب الصفحة الأصلية وحدّة الأختام',
         });
       }
 
@@ -351,21 +405,9 @@ export async function mergeImagesToPdfClient(
         }
       }
 
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // تفعيل خوارزمية التنعيم الفائقة لمنع التبكسل والحفاظ على حدة الحروف
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, w, h);
-        // رسم الصورة بالألوان الطبيعية الكاملة 24-bit
-        ctx.drawImage(imageBitmap, 0, 0, w, h);
-      }
+      const canvas = highQualityResizeCanvas(imageBitmap, w, h);
 
-      // ضغط بصيغة JPEG بالألوان الكاملة لمنع التشويه
+      // ضغط الصورة بصيغة JPEG بجودة متوازنة
       const imgJpgBlob = await new Promise<Blob>((res) =>
         canvas.toBlob((b) => res(b!), 'image/jpeg', quality)
       );
@@ -374,21 +416,27 @@ export async function mergeImagesToPdfClient(
       const imageBytes = await imgJpgBlob.arrayBuffer();
       const embeddedImage = await pdfDoc.embedJpg(imageBytes);
 
-      // مقاس صفحة A4 القياسية: (595.28 x 841.89)
-      const page = pdfDoc.addPage([595.28, 841.89]);
-      const { width: pageW, height: pageH } = page.getSize();
-      const { width: imgW, height: imgH } = embeddedImage.scale(1);
+      // تحديد أبعاد صفحة الـ PDF بناءً على الاتجاه والنسب الأصلية للمستند دون قص أو تمدد
+      const isLandscape = imageBitmap.width > imageBitmap.height;
+      const standardA4Long = 841.89;
+      const standardA4Short = 595.28;
 
-      const margin = 20;
-      const availW = pageW - margin * 2;
-      const availH = pageH - margin * 2;
-      const scale = Math.min(availW / imgW, availH / imgH, 1);
-      const renderW = imgW * scale;
-      const renderH = imgH * scale;
+      const pageWidth = isLandscape ? standardA4Long : standardA4Short;
+      const pageHeight = isLandscape ? standardA4Short : standardA4Long;
+
+      const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
+      // هامش نظيف ضئيل (8pt) لتعظيم مساحة القراءة ووضوح الخطوط
+      const margin = 8;
+      const availW = pageWidth - margin * 2;
+      const availH = pageHeight - margin * 2;
+      const scale = Math.min(availW / embeddedImage.width, availH / embeddedImage.height);
+      const renderW = embeddedImage.width * scale;
+      const renderH = embeddedImage.height * scale;
 
       page.drawImage(embeddedImage, {
-        x: (pageW - renderW) / 2,
-        y: (pageH - renderH) / 2,
+        x: margin + (availW - renderW) / 2,
+        y: margin + (availH - renderH) / 2,
         width: renderW,
         height: renderH,
       });
@@ -399,25 +447,28 @@ export async function mergeImagesToPdfClient(
   };
 
   // ميزانية ذكية للأبعاد والجودة بحسب عدد الصفحات لضمان أعلى وضوح تحت 500 KB:
-  let currentMaxDim = 1280; // دقة ممتازة لـ A4 (150 DPI) تضمن قراءة أدق الأختام
-  let currentQuality = 0.70; // جودة نقية تمنع تشويش الحروف
+  let currentMaxDim = 1600; // دقة ممتازة (150-180 DPI) تمنع تشويش الحروف
+  let currentQuality = 0.76;
 
   if (pageCount === 1) {
-    currentMaxDim = 1350;
-    currentQuality = 0.74;
+    currentMaxDim = 1750;
+    currentQuality = 0.78;
   } else if (pageCount === 2) {
-    currentMaxDim = 1240;
-    currentQuality = 0.68;
-  } else if (pageCount >= 3) {
-    currentMaxDim = Math.max(950, Math.round(1200 - pageCount * 40));
-    currentQuality = Math.max(0.52, 0.66 - pageCount * 0.02);
+    currentMaxDim = 1550;
+    currentQuality = 0.74;
+  } else if (pageCount <= 5) {
+    currentMaxDim = Math.max(1300, 1500 - pageCount * 40);
+    currentQuality = Math.max(0.66, 0.74 - pageCount * 0.02);
+  } else {
+    currentMaxDim = Math.max(1150, 1350 - pageCount * 25);
+    currentQuality = Math.max(0.60, 0.68 - pageCount * 0.01);
   }
 
   let finalBlob = await generatePdfWithParams(currentMaxDim, currentQuality, true);
 
   onProgress?.({
-    stage: 'تجميع وضغط مستند الـ PDF النهائي',
-    percent: 85,
+    stage: 'تجميع مستند الـ PDF النهائي',
+    percent: 88,
     originalSize: totalOriginalSize,
     currentSize: finalBlob.size,
     totalPages: pageCount,
@@ -426,23 +477,33 @@ export async function mergeImagesToPdfClient(
     detail: `الحجم الحالي: ${(finalBlob.size / 1024).toFixed(1)} KB`,
   });
 
-  // حلقة ضبط ذكية تدريجية: إذا تجاوز 470 KB، تقليل طفيف متوازن مع منع التبكسل
+  // حلقة ضبط تدريجية هادئة مع احترام الحد الأدنى للجودة (Floor)
   let attempts = 0;
-  while (finalBlob.size > strictMaxThreshold && attempts < 5) {
+  const qualityFloor = 0.58;
+  const dimFloor = 1100;
+
+  while (finalBlob.size > strictMaxThreshold && attempts < 4) {
     attempts++;
-    currentQuality = Math.max(0.42, currentQuality - 0.06);
-    currentMaxDim = Math.round(currentMaxDim * 0.90);
+    if (currentQuality > qualityFloor + 0.04) {
+      currentQuality = Math.max(qualityFloor, currentQuality - 0.06);
+    } else if (currentMaxDim > dimFloor) {
+      currentMaxDim = Math.max(dimFloor, Math.round(currentMaxDim * 0.90));
+      currentQuality = 0.65;
+    } else {
+      break; // نتوقف عند الحد الأدنى لعدم إفساد جودة المستند
+    }
+
     finalBlob = await generatePdfWithParams(currentMaxDim, currentQuality, false);
 
     onProgress?.({
-      stage: `إعادة موازنة تدريجية لاشتراط < 500 KB (خطوة ${attempts})`,
-      percent: Math.min(94, 85 + attempts * 2),
+      stage: `موازنة تدريجية لاشتراط < 500 KB (خطوة ${attempts})`,
+      percent: Math.min(96, 88 + attempts * 2),
       originalSize: totalOriginalSize,
       currentSize: finalBlob.size,
       totalPages: pageCount,
       currentPage: pageCount,
       targetMax: strictMaxThreshold,
-      detail: `الحجم الحالي: ${(finalBlob.size / 1024).toFixed(1)} KB`,
+      detail: `الحجم: ${(finalBlob.size / 1024).toFixed(1)} KB • الدقة: ${currentMaxDim}px`,
     });
   }
 
@@ -460,7 +521,7 @@ export async function mergeImagesToPdfClient(
     totalPages: pageCount,
     currentPage: pageCount,
     targetMax: strictMaxThreshold,
-    detail: `الحجم النهائي: ${(compressedSize / 1024).toFixed(1)} KB (أقل من 500 KB)`,
+    detail: `الحجم النهائي: ${(compressedSize / 1024).toFixed(1)} KB (وفرت ${reductionPercentage}%)`,
   });
 
   return {
@@ -473,57 +534,102 @@ export async function mergeImagesToPdfClient(
   };
 }
 
-import * as pdfjsLib from 'pdfjs-dist';
-
-// تعيين مسار الـ worker لمكتبة pdfjs
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-}
-
 /**
- * تحسين وضغط ملف PDF قائم بإعادة تشفير الصفحات وضغط الصور المضمنة (Image Scaling)
- * مع ضبط دقة DPI متوازنة (72-96 DPI) لتقليل الحجم مع الحفاظ التام على حدة النصوص والأختام
- * مع دعم مؤشر التقدم الشفاف والتفاعلي (Progress Indicator)
+ * معالجة وضغط ملفات PDF القانونية بطريقة احترافية متوازنة:
+ * 1. عدم تحويل صفحات PDF النصية إلى صور دون ضرورة للحفاظ على النصوص القابلة للبحث والتحديد.
+ * 2. محاولة الضغط الهيكلي الخالي من الفقدان (Lossless Structural Compression) أولاً عبر pdf-lib.
+ * 3. إذا كان الملف بالفعل أقل من 500 KB، يتم الحفاظ عليه كاملاً بجودته ونصوصه الأصلية دون أي تشويش.
+ * 4. عند الحاجة لضغط الصفحات المصورة (Scanned PDFs)، استخدام دقة DPI متوازنة (150-180 DPI بدلاً من 72 DPI)
+ *    للحفاظ على وضوح الحروف الصغيرة وأختام النسر والتوقيعات.
+ * 5. الحفاظ الدقيق على أبعاد ونسب كل صفحة واتجاهها (أفقي/رأسي) كما في الملف الأصلي دون قص أو تمدد أو حواف مشوهة.
+ * 6. الالتزام بحد أدنى للجودة لعدم إفساد المستند حتى لو كان حجمه النهائي قريباً من الهدف.
  */
 export async function compressPdfClient(
   file: File,
-  strictMaxThreshold = 470 * 1024,
+  strictMaxThreshold = 490 * 1024, // 490 KB لاستهداف أقل من 500 KB
   onProgress?: (progress: CompressionProgress) => void
 ): Promise<CompressionResult> {
   const originalSize = file.size;
   const arrayBuffer = await file.arrayBuffer();
 
   onProgress?.({
-    stage: 'قراءة وتحليل مستند الـ PDF',
+    stage: 'قراءة وتحليل هيكل مستند الـ PDF',
     percent: 10,
     originalSize,
     currentSize: originalSize,
     targetMax: strictMaxThreshold,
-    detail: `الحجم الأصلي: ${(originalSize / 1024).toFixed(1)} KB • استخراج الصفحات`,
+    detail: `الحجم الأصلي: ${(originalSize / 1024).toFixed(1)} KB • فحص النصوص والأختام`,
   });
 
+  // ==================== المرحلة 1: الضغط الهيكلي الخالي من الفقدان (Lossless Structural Optimization) ====================
+  // تحسين تدفقات الكائنات وإزالة التكرارات دون تحويل النصوص إلى صور
   try {
-    // 1. فك تشفير وصفحات الـ PDF عبر pdfjs-dist
+    const rawPdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+    const structBytes = await rawPdfDoc.save({ useObjectStreams: true, addDefaultPage: false });
+
+    // إذا كان المستند الأصلي بالفعل أقل من 500 KB أو نجح الضغط الهيكلي في جعله أقل من 500 KB:
+    // نحافظ على النصوص الفيكتورية بالكامل 100% قابلة للبحث والتحديد وبأعلى حدة مطلقة
+    if (structBytes.length <= strictMaxThreshold || originalSize <= strictMaxThreshold) {
+      const finalBytes = structBytes.length < originalSize ? structBytes : new Uint8Array(arrayBuffer);
+      const optimizedBlob = new Blob([finalBytes as unknown as BlobPart], { type: 'application/pdf' });
+      const reduction = Math.max(0, Math.round(((originalSize - optimizedBlob.size) / originalSize) * 100));
+
+      onProgress?.({
+        stage: 'تم تحسين المستند بنجاح مع الحفاظ التام على النصوص والأختام 100%',
+        percent: 100,
+        originalSize,
+        currentSize: optimizedBlob.size,
+        targetMax: strictMaxThreshold,
+        detail: `نصوص قابلة للبحث والتحديد • الحجم: ${(optimizedBlob.size / 1024).toFixed(1)} KB`,
+      });
+
+      return {
+        blob: optimizedBlob,
+        url: URL.createObjectURL(optimizedBlob),
+        originalSize,
+        compressedSize: optimizedBlob.size,
+        reductionPercentage: reduction,
+        name: file.name.replace(/\.[^/.]+$/, '') + '_optimized.pdf',
+      };
+    }
+  } catch (err) {
+    console.warn('Structural optimization pass failed, proceeding to adaptive raster:', err);
+  }
+
+  // ==================== المرحلة 2: المعالجة الذكية للصفحات والمستندات الممسوحة ضوئياً ====================
+  try {
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
     const pdf = await loadingTask.promise;
     const numPages = pdf.numPages;
 
-    // ضبط الـ DPI بين 72 إلى 96 بناءً على عدد الصفحات لضمان النقاء والحجم < 500 KB
-    // دقة 72-96 DPI تعطي وضوحاً فائقاً للنصوص العربية والأختام مع حجم ملف منخفض جداً
-    let targetDpi = numPages <= 2 ? 96 : (numPages <= 5 ? 84 : 72);
-    let scaleFactor = targetDpi / 72; // معيار الـ PDF الأساسي هو 72 points لكل بوصة
+    // فحص عينة من الصفحات لمعرفة ما إذا كان المستند نصياً بالكامل:
+    let totalTextLength = 0;
+    const sampleCount = Math.min(numPages, 3);
+    for (let p = 1; p <= sampleCount; p++) {
+      try {
+        const page = await pdf.getPage(p);
+        const textContent = await page.getTextContent();
+        totalTextLength += textContent.items.length;
+      } catch (_) {}
+    }
+
+    // حساب دقة DPI حادة ومناسبة للمستندات القضائية:
+    // نعتمد 150-180 DPI للصفحات العادية و 135-150 DPI للمستندات الكبيرة
+    // (دقة 72-96 القديمة كانت سبب تشويش المستند وضياع معالم الأختام)
+    let targetDpi = numPages <= 2 ? 180 : (numPages <= 5 ? 150 : (numPages <= 10 ? 135 : 120));
+    let scaleFactor = targetDpi / 72;
 
     onProgress?.({
-      stage: `فحص ${numPages} صفحة وتطبيق دقة ${targetDpi} DPI`,
-      percent: 22,
+      stage: `فحص ${numPages} صفحة وتطبيق معيار دقة ${targetDpi} DPI`,
+      percent: 25,
       originalSize,
-      currentSize: Math.round(originalSize * 0.85),
+      currentSize: Math.round(originalSize * 0.8),
       totalPages: numPages,
       targetMax: strictMaxThreshold,
-      detail: `معيار دقة 72-96 DPI للحفاظ على الأختام والنصوص بدون تشويش`,
+      detail: `معيار دقة ${targetDpi} DPI يحافظ على وضوح أدق التوقيعات والأختام والخطوط`,
     });
 
-    // دالة داخلية لإعادة بناء الـ PDF بجودة وصيغة صورة محددة
+    // دالة داخلية لإعادة بناء الـ PDF مع الحفاظ الصارم على أبعاد ونسب كل صفحة
     const buildCompressedPdf = async (
       scale: number,
       jpegQuality: number,
@@ -535,23 +641,30 @@ export async function compressPdfClient(
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
         if (reportSteps) {
           onProgress?.({
-            stage: `معالجة وضغط صفحة ${pageNum} من ${numPages} (دقة ${targetDpi} DPI)`,
-            percent: Math.round(22 + (pageNum / numPages) * 58),
+            stage: `معالجة وضغط صفحة ${pageNum} من ${numPages} (دقة ${Math.round(scale * 72)} DPI)`,
+            percent: Math.round(25 + (pageNum / numPages) * 55),
             originalSize,
             currentSize: runningSize || Math.round((pageNum / numPages) * originalSize * 0.45),
             currentPage: pageNum,
             totalPages: numPages,
             targetMax: strictMaxThreshold,
-            detail: `الحفاظ على الألوان والأختام الأصلية (النسر والتوقيعات)`,
+            detail: 'الحفاظ على أبعاد واتجاه الصفحة ونقاء أختام النسر والتوقيعات',
           });
         }
 
         const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale });
+
+        // 1. أبعاد الصفحة الأصلية بوحدات الـ PDF النقاطية (Points)
+        const origViewport = page.getViewport({ scale: 1 });
+        const origWidth = origViewport.width;
+        const origHeight = origViewport.height;
+
+        // 2. أبعاد الرسم بدقة الـ DPI المستهدفة العالية
+        const renderViewport = page.getViewport({ scale });
 
         const canvas = document.createElement('canvas');
-        canvas.width = Math.round(viewport.width);
-        canvas.height = Math.round(viewport.height);
+        canvas.width = Math.round(renderViewport.width);
+        canvas.height = Math.round(renderViewport.height);
         const ctx = canvas.getContext('2d', { alpha: false });
 
         if (ctx) {
@@ -562,11 +675,11 @@ export async function compressPdfClient(
 
           await page.render({
             canvasContext: ctx,
-            viewport: viewport,
+            viewport: renderViewport,
           }).promise;
         }
 
-        // ضغط الصورة كـ JPEG بالألوان الطبيعية الكاملة (حفاظ تام على أختام النسر والتوقيعات)
+        // ضغط صفحة المستند كـ JPEG بألوان كاملة 24-bit
         const pageJpgBlob = await new Promise<Blob>((res) =>
           canvas.toBlob((b) => res(b!), 'image/jpeg', jpegQuality)
         );
@@ -575,23 +688,13 @@ export async function compressPdfClient(
         const pageBytes = await pageJpgBlob.arrayBuffer();
         const embeddedImg = await outputPdf.embedJpg(pageBytes);
 
-        // إنشاء صفحة A4 متناسقة
-        const newPage = outputPdf.addPage([595.28, 841.89]);
-        const { width: pW, height: pH } = newPage.getSize();
-        const { width: imgW, height: imgH } = embeddedImg.scale(1);
-
-        const margin = 14;
-        const availW = pW - margin * 2;
-        const availH = pH - margin * 2;
-        const fitScale = Math.min(availW / imgW, availH / imgH, 1);
-        const drawW = imgW * fitScale;
-        const drawH = imgH * fitScale;
-
+        // 3. الحفاظ على أبعاد ونسب الصفحة الأصلية تماماً دون فرض A4 أو قص أو تمدد
+        const newPage = outputPdf.addPage([origWidth, origHeight]);
         newPage.drawImage(embeddedImg, {
-          x: (pW - drawW) / 2,
-          y: (pH - drawH) / 2,
-          width: drawW,
-          height: drawH,
+          x: 0,
+          y: 0,
+          width: origWidth,
+          height: origHeight,
         });
       }
 
@@ -599,11 +702,12 @@ export async function compressPdfClient(
       return new Blob([finalPdfBytes as unknown as BlobPart], { type: 'application/pdf' });
     };
 
-    let quality = numPages <= 2 ? 0.72 : 0.65;
+    // جودة ابتدائية نقية تمنع تشوه النصوص (76% للمستندات القصيرة، 70% للمتوسطة)
+    let quality = numPages <= 2 ? 0.76 : (numPages <= 5 ? 0.71 : 0.66);
     let finalBlob = await buildCompressedPdf(scaleFactor, quality, true);
 
     onProgress?.({
-      stage: 'تجميع هيكل الـ PDF النهائي وتطبيق ضغط الكائنات',
+      stage: 'تجميع وضغط مستند الـ PDF النهائي',
       percent: 85,
       originalSize,
       currentSize: finalBlob.size,
@@ -613,29 +717,43 @@ export async function compressPdfClient(
       detail: `الحجم الحالي: ${(finalBlob.size / 1024).toFixed(1)} KB`,
     });
 
-    // إذا كان الحجم أكبر من 470 KB نقوم بتخفيض متوازن تدريجي
+    // حلقة ضبط تدريجية هادئة مع حد أدنى صارم للجودة:
+    // لا ننزل عن 120 DPI ولا عن 58% جودة لحماية وضوح المستند القضائي
     let attempts = 0;
+    const dpiFloor = 120;
+    const qualityFloor = 0.58;
+
     while (finalBlob.size > strictMaxThreshold && attempts < 4) {
       attempts++;
-      scaleFactor = Math.max(1.0, scaleFactor * 0.90);
-      quality = Math.max(0.48, quality - 0.08);
+      const currentDpi = scaleFactor * 72;
+
+      if (quality > qualityFloor + 0.04) {
+        quality = Math.max(qualityFloor, quality - 0.06);
+      } else if (currentDpi > dpiFloor) {
+        scaleFactor = Math.max(dpiFloor / 72, scaleFactor * 0.90);
+        quality = 0.64; // إعادة رفع الجودة عند خفض الأبعاد
+      } else {
+        // وصلنا للحد الأدنى المسموح لسلامة الخطوط والأختام - نتوقف لحماية المستند
+        break;
+      }
+
       finalBlob = await buildCompressedPdf(scaleFactor, quality, false);
 
       onProgress?.({
-        stage: `إعادة موازنة تدريجية لاشتراط < 500 KB (خطوة ${attempts})`,
-        percent: Math.min(94, 85 + attempts * 2),
+        stage: `موازنة تدريجية لاشتراط < 500 KB (خطوة ${attempts})`,
+        percent: Math.min(95, 85 + attempts * 2),
         originalSize,
         currentSize: finalBlob.size,
         totalPages: numPages,
         currentPage: numPages,
         targetMax: strictMaxThreshold,
-        detail: `الحجم الحالي: ${(finalBlob.size / 1024).toFixed(1)} KB`,
+        detail: `الحجم: ${(finalBlob.size / 1024).toFixed(1)} KB • الجودة: ${Math.round(quality * 100)}%`,
       });
     }
 
     const compressedSize = finalBlob.size;
     const reductionPercentage = Math.max(
-      5,
+      1,
       Math.round(((originalSize - compressedSize) / originalSize) * 100)
     );
 
@@ -659,29 +777,18 @@ export async function compressPdfClient(
       name: file.name.replace(/\.[^/.]+$/, '') + '_compressed.pdf',
     };
   } catch (err) {
-    // في حالة الطوارئ، محاولة ضغط الكائنات عبر pdf-lib مباشرة
-    console.warn('Fallback to pdf-lib compression:', err);
+    console.warn('Advanced PDF compression fallback:', err);
     const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
     const bytes = await pdfDoc.save({ useObjectStreams: true });
     const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' });
-
-    onProgress?.({
-      stage: 'تم تحسين مستند الـ PDF واكتمال الحفظ',
-      percent: 100,
-      originalSize,
-      currentSize: blob.size,
-      targetMax: strictMaxThreshold,
-      detail: `الحجم: ${(blob.size / 1024).toFixed(1)} KB`,
-    });
 
     return {
       blob,
       url: URL.createObjectURL(blob),
       originalSize,
       compressedSize: blob.size,
-      reductionPercentage: Math.max(5, Math.round(((originalSize - blob.size) / originalSize) * 100)),
+      reductionPercentage: Math.max(1, Math.round(((originalSize - blob.size) / originalSize) * 100)),
       name: file.name.replace(/\.[^/.]+$/, '') + '_optimized.pdf',
     };
   }
 }
-
