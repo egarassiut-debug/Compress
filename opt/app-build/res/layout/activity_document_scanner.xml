@@ -13,7 +13,7 @@
         android:background="#0F766E"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="12dp">
+        android:padding="10dp">
 
         <Button
             android:id="@+id/btn_scanner_back"
@@ -30,9 +30,9 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="تصوير المستندات أوفلاين"
+            android:text="ماسح المستندات الضوئي"
             android:textColor="#FFFFFF"
-            android:textSize="14.5sp"
+            android:textSize="14sp"
             android:textStyle="bold" />
 
         <Button
@@ -46,7 +46,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- حاوية المعاينة المباشرة للكاميرا أو المراجعة -->
+    <!-- حاوية العرض الرئيسية: كاميرا حية + إطار اكتشاف + معاينة + قص يدوي تفاعلي -->
     <FrameLayout
         android:id="@+id/scanner_stage_container"
         android:layout_width="match_parent"
@@ -59,6 +59,11 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
+        <com.example.legal_file_compressor.ScannerOverlayView
+            android:id="@+id/scanner_overlay_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
         <ImageView
             android:id="@+id/iv_review_preview"
             android:layout_width="match_parent"
@@ -67,20 +72,27 @@
             android:visibility="gone"
             android:contentDescription="@null" />
 
+        <com.example.legal_file_compressor.CropOverlayView
+            android:id="@+id/crop_overlay_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/tv_stability_hint"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
             android:paddingLeft="14dp"
             android:paddingRight="14dp"
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
             android:background="@drawable/bg_toast_navy"
+            android:text="وجّه الكاميرا نحو الورقة لاكتشاف حدودها تلقائياً"
             android:textColor="#FDE047"
             android:textSize="11.5sp"
-            android:visibility="gone" />
+            android:visibility="visible" />
     </FrameLayout>
 
     <!-- أزرار التحكم السفلية -->
@@ -91,6 +103,7 @@
         android:orientation="vertical"
         android:padding="10dp">
 
+        <!-- 1. أزرار الكاميرا -->
         <LinearLayout
             android:id="@+id/layout_camera_controls"
             android:layout_width="match_parent"
@@ -105,7 +118,7 @@
                 android:text="فلاش: إيقاف"
                 android:textColor="#FFFFFF"
                 android:background="@drawable/bg_icon_box"
-                android:textSize="11.5sp"
+                android:textSize="11sp"
                 android:layout_marginEnd="8dp" />
 
             <Button
@@ -113,10 +126,10 @@
                 android:layout_width="0dp"
                 android:layout_height="48dp"
                 android:layout_weight="1"
-                android:text="التقاط ورقة"
+                android:text="التقاط يدوي"
                 android:textColor="#FFFFFF"
                 android:background="@drawable/bg_card_teal"
-                android:textSize="14sp"
+                android:textSize="13.5sp"
                 android:textStyle="bold" />
 
             <Button
@@ -126,11 +139,77 @@
                 android:text="مراجعة (0)"
                 android:textColor="#0F2557"
                 android:background="@drawable/bg_share_button"
-                android:textSize="11.5sp"
+                android:textSize="11sp"
                 android:textStyle="bold"
                 android:layout_marginStart="8dp" />
         </LinearLayout>
 
+        <!-- 2. أزرار القص اليدوي للزوايا الأربع -->
+        <LinearLayout
+            android:id="@+id/layout_crop_controls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
+
+                <Button
+                    android:id="@+id/btn_crop_auto_detect"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:text="كشف تلقائي للزوايا"
+                    android:textColor="#5EEAD4"
+                    android:background="@drawable/bg_icon_box"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="6dp" />
+
+                <Button
+                    android:id="@+id/btn_crop_reset_full"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:text="كامل الصورة الأصلية"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_icon_box"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_crop_cancel"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:text="إلغاء"
+                    android:textColor="#FCA5A5"
+                    android:background="@drawable/bg_icon_box"
+                    android:textSize="12sp"
+                    android:layout_marginEnd="6dp" />
+
+                <Button
+                    android:id="@+id/btn_crop_apply"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="2"
+                    android:text="تطبيق القص وتصحيح المنظور"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_card_teal"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 3. أزرار مراجعة الصفحات والجودة والتصدير -->
         <LinearLayout
             android:id="@+id/layout_review_controls"
             android:layout_width="match_parent"
@@ -144,12 +223,12 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="6dp">
+                android:layout_marginBottom="5dp">
 
                 <Button
                     android:id="@+id/btn_prev_page"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="33dp"
                     android:layout_weight="1"
                     android:text="السابق"
                     android:textColor="#FFFFFF"
@@ -160,7 +239,7 @@
                 <Button
                     android:id="@+id/btn_next_page"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="33dp"
                     android:layout_weight="1"
                     android:text="التالي"
                     android:textColor="#FFFFFF"
@@ -171,7 +250,7 @@
                 <Button
                     android:id="@+id/btn_move_prev"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="33dp"
                     android:layout_weight="1"
                     android:text="تقديم"
                     android:textColor="#FDE047"
@@ -182,7 +261,7 @@
                 <Button
                     android:id="@+id/btn_move_next"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="33dp"
                     android:layout_weight="1"
                     android:text="تأخير"
                     android:textColor="#FDE047"
@@ -193,7 +272,7 @@
                 <Button
                     android:id="@+id/btn_full_preview"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="33dp"
                     android:layout_weight="1"
                     android:text="معاينة"
                     android:textColor="#5EEAD4"
@@ -201,76 +280,149 @@
                     android:textSize="10.5sp" />
             </LinearLayout>
 
+            <!-- شريط التدوير 90° يمين/يسار والقص اليدوي وإعادة التصوير والحذف والإضافة -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginBottom="8dp">
+                android:layout_marginBottom="5dp">
 
                 <Button
-                    android:id="@+id/btn_rotate_45"
+                    android:id="@+id/btn_rotate_right_90"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="36dp"
                     android:layout_weight="1"
-                    android:text="تدوير 45°"
+                    android:text="يمين 90°"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_icon_box"
-                    android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="9.5sp"
+                    android:layout_marginEnd="3dp" />
 
                 <Button
-                    android:id="@+id/btn_crop_margin"
+                    android:id="@+id/btn_rotate_left_90"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="36dp"
                     android:layout_weight="1"
-                    android:text="ضبط القص"
+                    android:text="يسار 90°"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_icon_box"
-                    android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="9.5sp"
+                    android:layout_marginEnd="3dp" />
+
+                <Button
+                    android:id="@+id/btn_manual_crop"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="القص"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_icon_box"
+                    android:textSize="9.5sp"
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btn_retake_page"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="36dp"
                     android:layout_weight="1"
-                    android:text="إعادة تصوير"
+                    android:text="إعادة"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_icon_box"
-                    android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="9.5sp"
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btn_delete_page"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="36dp"
                     android:layout_weight="1"
                     android:text="حذف"
                     android:textColor="#FCA5A5"
                     android:background="@drawable/bg_icon_box"
-                    android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="9.5sp"
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btn_add_more_pages"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="36dp"
                     android:layout_weight="1"
                     android:text="إضافة"
-                    android:textColor="#FFFFFF"
+                    android:textColor="#5EEAD4"
                     android:background="@drawable/bg_icon_box"
-                    android:textSize="10.5sp" />
+                    android:textSize="9.5sp" />
             </LinearLayout>
 
-            <Button
-                android:id="@+id/btn_save_dual_outputs"
+            <!-- شريط أوضاع الجودة (ألوان أصلية افتراضياً / تدرج رمادي / أبيض وأسود) -->
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="46dp"
-                android:text="حفظ Scan_001.. بالمعرض و PDF بالتنزيلات (&lt; 500 KB)"
-                android:textColor="#FFFFFF"
-                android:background="@drawable/bg_card_teal"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
+
+                <Button
+                    android:id="@+id/btn_filter_color"
+                    android:layout_width="0dp"
+                    android:layout_height="32dp"
+                    android:layout_weight="1"
+                    android:text="ألوان أصلية ✓"
+                    android:textColor="#09183B"
+                    android:background="@drawable/bg_share_button"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_filter_gray"
+                    android:layout_width="0dp"
+                    android:layout_height="32dp"
+                    android:layout_weight="1"
+                    android:text="تدرج رمادي"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_icon_box"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_filter_bw"
+                    android:layout_width="0dp"
+                    android:layout_height="32dp"
+                    android:layout_weight="1"
+                    android:text="أبيض وأسود"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_icon_box"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <!-- خياران واضحان للحفظ والتصدير -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_save_images_only"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:text="أ. حفظ الصور (&lt; 500KB)"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_card_blue"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:layout_marginEnd="6dp" />
+
+                <Button
+                    android:id="@+id/btn_save_pdf_only"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:text="ب. حفظ PDF (&lt; 500KB)"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_card_teal"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 

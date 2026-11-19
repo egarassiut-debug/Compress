@@ -8,7 +8,7 @@ import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Matrix;
+import android.graphics.Color;
 import android.hardware.Camera;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
@@ -21,8 +21,8 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
-import android.widget.ScrollView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,19 +31,17 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
 /**
- * شاشة تصوير المستندات ضوئياً أوفلاين لتطبيق «ضغطة» الأصلي
- * مستقلة تماماً ولا تعدّل أي إعدادات ضغط سابقة في MainActivity.
- * - تصوير متتالي لصفحات غير محدودة (تلقائي / يدوي)، فلاش، تركيز تلقائي
- * - تجاهل الاهتزاز البسيط لليد مع تنبيه هادئ عند الحركة المؤثرة فقط
- * - ضبط حدود القص وتدوير يدوي بمقدار 45 درجة عند كل ضغطة
- * - تحسين تلقائي للإضاءة وإزالة الظلال مع الحفاظ التام على الألوان والأختام والتوقيعات
- * - مراجعة، معاينة كاملة، ترتيب الصفحات (تقديم/تأخير)، حذف، إعادة تصوير
- * - حفظ مزدوج: Scan_001.jpg.. بالمعرض (< 500 KB) + Scanned_Document.pdf بالتنزيلات (< 500 KB)
+ * شاشة ماسح المستندات الضوئي الحقيقي (Android Native - أوفلاين بالكامل):
+ * - تشغيل الكاميرا مباشرة واكتشاف الورقة وزواياها الأربع تلقائياً أثناء المعاينة مع إطار مرئي متجاوب
+ * - منع الالتقاط التلقائي عند غياب الورقة أو اهتزازها أو عدم وضوحها
+ * - تصحيح المنظور الفعلي (Projective Perspective Correction) والقص التلقائي أو تحريك الزوايا الأربع يدوياً
+ * - أوضاع الجودة: الألوان الأصلية (الافتراضي لحماية الأختام والتوقيعات)، تدرج رمادي، أبيض وأسود ذكي
+ * - التدوير 90° كاملة يميناً ويساراً لكل صفحة بشكل مستقل ودون فقدان جودة
+ * - خياران واضحان للتصدير: (أ) حفظ الصور بالمعرض (< 500 KB بدون إعادة معالجة غير ضرورية) و (ب) حفظ PDF موحد (< 500 KB أو تنبيه)
  */
 @SuppressWarnings("deprecation")
 public class DocumentScannerActivity extends Activity implements SurfaceHolder.Callback {
@@ -52,50 +50,76 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     private static final int SAFE_TARGET_BYTES = 485 * 1024;
     private static final int REQ_CAMERA_PERM = 301;
 
+    private static final int STEP_CAMERA = 0;
+    private static final int STEP_REVIEW = 1;
+    private static final int STEP_CROP = 2;
+
     private static class ScannedPage {
         File originalTempFile;
         File processedTempFile;
-        int rotationDeg = 0;
-        int cropTrimPct = 4; // هامش قص ذكي (0%، 4%، 8%)
+        float[] corners = DocumentScannerEngine.defaultGuideCorners();
+        boolean autoDetected = false;
+        int rotationDeg = 0; // مضاعفات 90° فقط (0، 90، 180، 270)
+        int filterMode = DocumentScannerEngine.FILTER_ORIGINAL_COLOR; // الافتراضي: ألوان أصلية
         byte[] processedBytes;
     }
 
     private Camera camera;
     private SurfaceView surfaceView;
     private SurfaceHolder surfaceHolder;
+    private ScannerOverlayView scannerOverlayView;
     private ImageView ivPreview;
+    private CropOverlayView cropOverlayView;
     private TextView tvTitle;
     private TextView tvStabilityHint;
+
     private View layoutCameraControls;
+    private View layoutCropControls;
     private View layoutReviewControls;
+
     private Button btnModeToggle;
     private Button btnFlashToggle;
     private Button btnCapture;
     private Button btnOpenReview;
+
+    private Button btnCropAutoDetect;
+    private Button btnCropResetFull;
+    private Button btnCropCancel;
+    private Button btnCropApply;
+
     private Button btnPrevPage;
     private Button btnNextPage;
     private Button btnMovePrev;
     private Button btnMoveNext;
     private Button btnFullPreview;
-    private Button btnRotate45;
-    private Button btnCropMargin;
+    private Button btnRotateRight90;
+    private Button btnRotateLeft90;
+    private Button btnManualCrop;
     private Button btnRetake;
     private Button btnDelete;
     private Button btnAddMore;
-    private Button btnSaveDual;
+    private Button btnFilterColor;
+    private Button btnFilterGray;
+    private Button btnFilterBw;
+    private Button btnSaveImagesOnly;
+    private Button btnSavePdfOnly;
 
     private boolean isAutoMode = true;
     private boolean isFlashOn = false;
-    private boolean isInReview = false;
+    private int currentStep = STEP_CAMERA;
     private boolean isCapturing = false;
+    private volatile boolean isAnalyzingFrame = false;
     private int selectedIndex = 0;
     private int retakeIndex = -1;
+    private Bitmap cropEditingBitmap;
 
     private byte[] prevSampleFrame;
     private int stableStreak = 0;
     private long lastFrameCheckMs = 0L;
     private long lastAutoShotMs = 0L;
     private long heavyShakeSinceMs = 0L;
+    private volatile float[] latestLiveCorners = DocumentScannerEngine.defaultGuideCorners();
+    private volatile boolean latestLiveDetected = false;
 
     private final List<ScannedPage> pages = new ArrayList<ScannedPage>();
 
@@ -105,26 +129,44 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         setContentView(R.layout.activity_document_scanner);
 
         surfaceView = (SurfaceView) findViewById(R.id.camera_surface);
+        scannerOverlayView = (ScannerOverlayView) findViewById(R.id.scanner_overlay_view);
         ivPreview = (ImageView) findViewById(R.id.iv_review_preview);
+        cropOverlayView = (CropOverlayView) findViewById(R.id.crop_overlay_view);
         tvTitle = (TextView) findViewById(R.id.tv_scanner_title);
         tvStabilityHint = (TextView) findViewById(R.id.tv_stability_hint);
+
         layoutCameraControls = findViewById(R.id.layout_camera_controls);
+        layoutCropControls = findViewById(R.id.layout_crop_controls);
         layoutReviewControls = findViewById(R.id.layout_review_controls);
+
         btnModeToggle = (Button) findViewById(R.id.btn_scanner_mode);
         btnFlashToggle = (Button) findViewById(R.id.btn_flash_toggle);
         btnCapture = (Button) findViewById(R.id.btn_capture_page);
         btnOpenReview = (Button) findViewById(R.id.btn_open_review);
+
+        btnCropAutoDetect = (Button) findViewById(R.id.btn_crop_auto_detect);
+        btnCropResetFull = (Button) findViewById(R.id.btn_crop_reset_full);
+        btnCropCancel = (Button) findViewById(R.id.btn_crop_cancel);
+        btnCropApply = (Button) findViewById(R.id.btn_crop_apply);
+
         btnPrevPage = (Button) findViewById(R.id.btn_prev_page);
         btnNextPage = (Button) findViewById(R.id.btn_next_page);
         btnMovePrev = (Button) findViewById(R.id.btn_move_prev);
         btnMoveNext = (Button) findViewById(R.id.btn_move_next);
         btnFullPreview = (Button) findViewById(R.id.btn_full_preview);
-        btnRotate45 = (Button) findViewById(R.id.btn_rotate_45);
-        btnCropMargin = (Button) findViewById(R.id.btn_crop_margin);
+        btnRotateRight90 = (Button) findViewById(R.id.btn_rotate_right_90);
+        btnRotateLeft90 = (Button) findViewById(R.id.btn_rotate_left_90);
+        btnManualCrop = (Button) findViewById(R.id.btn_manual_crop);
         btnRetake = (Button) findViewById(R.id.btn_retake_page);
         btnDelete = (Button) findViewById(R.id.btn_delete_page);
         btnAddMore = (Button) findViewById(R.id.btn_add_more_pages);
-        btnSaveDual = (Button) findViewById(R.id.btn_save_dual_outputs);
+
+        btnFilterColor = (Button) findViewById(R.id.btn_filter_color);
+        btnFilterGray = (Button) findViewById(R.id.btn_filter_gray);
+        btnFilterBw = (Button) findViewById(R.id.btn_filter_bw);
+
+        btnSaveImagesOnly = (Button) findViewById(R.id.btn_save_images_only);
+        btnSavePdfOnly = (Button) findViewById(R.id.btn_save_pdf_only);
 
         surfaceHolder = surfaceView.getHolder();
         surfaceHolder.addCallback(this);
@@ -132,7 +174,11 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         findViewById(R.id.btn_scanner_back).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                finish();
+                if (currentStep == STEP_CROP) {
+                    closeCropScreenToReview();
+                } else {
+                    finish();
+                }
             }
         });
 
@@ -140,7 +186,9 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
             @Override
             public void onClick(View v) {
                 isAutoMode = !isAutoMode;
+                stableStreak = 0;
                 btnModeToggle.setText(isAutoMode ? "تلقائي" : "يدوي");
+                updateCameraStatusHint(latestLiveDetected, false, false);
             }
         });
 
@@ -206,17 +254,54 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
             }
         });
 
-        btnRotate45.setOnClickListener(new View.OnClickListener() {
+        btnRotateRight90.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                rotateCurrentPage45();
+                rotateCurrentPage90(90);
             }
         });
 
-        btnCropMargin.setOnClickListener(new View.OnClickListener() {
+        btnRotateLeft90.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                cycleCropMargin();
+                rotateCurrentPage90(-90);
+            }
+        });
+
+        btnManualCrop.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openManualCrop(selectedIndex);
+            }
+        });
+
+        btnCropAutoDetect.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                redetectCornersInCropView();
+            }
+        });
+
+        btnCropResetFull.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (cropEditingBitmap != null) {
+                    cropOverlayView.setImageAndCorners(cropEditingBitmap, DocumentScannerEngine.fullFrameCorners());
+                }
+            }
+        });
+
+        btnCropCancel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeCropScreenToReview();
+            }
+        });
+
+        btnCropApply.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                applyManualCropCorners();
             }
         });
 
@@ -243,10 +328,38 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
             }
         });
 
-        btnSaveDual.setOnClickListener(new View.OnClickListener() {
+        btnFilterColor.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                saveDualOutputs(false);
+                changeCurrentFilterMode(DocumentScannerEngine.FILTER_ORIGINAL_COLOR);
+            }
+        });
+
+        btnFilterGray.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                changeCurrentFilterMode(DocumentScannerEngine.FILTER_GRAYSCALE);
+            }
+        });
+
+        btnFilterBw.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                changeCurrentFilterMode(DocumentScannerEngine.FILTER_BLACK_WHITE);
+            }
+        });
+
+        btnSaveImagesOnly.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                saveImagesOnly();
+            }
+        });
+
+        btnSavePdfOnly.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                savePdfOnly(false);
             }
         });
 
@@ -262,7 +375,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         if (requestCode == REQ_CAMERA_PERM) {
             if (grantResults != null && grantResults.length > 0 &&
                 grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                if (!isInReview && surfaceHolder != null &&
+                if (currentStep == STEP_CAMERA && surfaceHolder != null &&
                     surfaceHolder.getSurface() != null && surfaceHolder.getSurface().isValid()) {
                     openCamera();
                 }
@@ -274,7 +387,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        if (!isInReview) {
+        if (currentStep == STEP_CAMERA) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
                 checkSelfPermission("android.permission.CAMERA") != PackageManager.PERMISSION_GRANTED) {
                 return;
@@ -306,14 +419,52 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                 if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
                     params.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
                 }
+                // اختيار أعلى دقة تصوير معقولة للمستندات
+                List<Camera.Size> picSizes = params.getSupportedPictureSizes();
+                if (picSizes != null && !picSizes.isEmpty()) {
+                    Camera.Size best = picSizes.get(0);
+                    for (Camera.Size s : picSizes) {
+                        int maxS = Math.max(s.width, s.height);
+                        int maxBest = Math.max(best.width, best.height);
+                        if (maxS <= 3200 && maxS > maxBest) best = s;
+                    }
+                    params.setPictureSize(best.width, best.height);
+                }
                 params.setRotation(90);
                 camera.setParameters(params);
             } catch (Exception ignored) {}
+
             camera.setPreviewDisplay(surfaceHolder);
             camera.setPreviewCallback(new Camera.PreviewCallback() {
                 @Override
-                public void onPreviewFrame(byte[] data, Camera cam) {
-                    analyzeMotionFrame(data);
+                public void onPreviewFrame(final byte[] data, Camera cam) {
+                    if (currentStep != STEP_CAMERA || isCapturing || isAnalyzingFrame || data == null) return;
+                    long now = System.currentTimeMillis();
+                    if (now - lastFrameCheckMs < 240) return;
+                    lastFrameCheckMs = now;
+
+                    final Camera.Size previewSize;
+                    try {
+                        previewSize = cam.getParameters().getPreviewSize();
+                    } catch (Exception e) {
+                        return;
+                    }
+                    if (previewSize == null || data.length < previewSize.width * previewSize.height) return;
+
+                    isAnalyzingFrame = true;
+                    final byte[] copy = new byte[previewSize.width * previewSize.height];
+                    System.arraycopy(data, 0, copy, 0, copy.length);
+
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                analyzeLivePreviewFrame(copy, previewSize.width, previewSize.height);
+                            } finally {
+                                isAnalyzingFrame = false;
+                            }
+                        }
+                    }).start();
                 }
             });
             camera.startPreview();
@@ -332,51 +483,80 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         }
     }
 
-    private void analyzeMotionFrame(byte[] yuv) {
-        if (!isAutoMode || isInReview || isCapturing || yuv == null || yuv.length < 256) return;
-        long now = System.currentTimeMillis();
-        if (now - lastFrameCheckMs < 350) return;
-        lastFrameCheckMs = now;
+    private void analyzeLivePreviewFrame(byte[] yPlane, int srcW, int srcH) {
+        final int sampleW = 120;
+        final int sampleH = 160;
+        byte[] gray = DocumentScannerEngine.sampleGrayFromNv21(yPlane, srcW, srcH, 90, sampleW, sampleH);
+        float stabilityDiff = DocumentScannerEngine.computeStabilityDiff(prevSampleFrame, gray);
+        prevSampleFrame = gray;
 
-        int step = Math.max(1, yuv.length / 400);
-        byte[] sample = new byte[400];
-        for (int i = 0; i < 400 && i * step < yuv.length; i++) {
-            sample[i] = yuv[i * step];
-        }
+        final DocumentScannerEngine.DetectionResult res =
+            DocumentScannerEngine.detectDocumentQuad(gray, sampleW, sampleH, stabilityDiff);
 
-        if (prevSampleFrame == null) {
-            prevSampleFrame = sample;
-            return;
-        }
+        latestLiveCorners = res.corners;
+        latestLiveDetected = res.detected;
 
-        int totalDiff = 0;
-        for (int i = 0; i < sample.length; i++) {
-            totalDiff += Math.abs((sample[i] & 0xFF) - (prevSampleFrame[i] & 0xFF));
-        }
-        prevSampleFrame = sample;
-        double meanDiff = totalDiff / (double) sample.length;
+        final long now = System.currentTimeMillis();
+        final boolean isShakingHeavy = stabilityDiff >= 13.5f;
+        final boolean isCalm = stabilityDiff < 6.5f;
+        final boolean isSharp = res.sharpness >= 7.0f;
 
-        if (meanDiff >= 13.5) {
+        if (!res.detected) {
+            heavyShakeSinceMs = 0L;
+            stableStreak = 0;
+        } else if (isShakingHeavy) {
             if (heavyShakeSinceMs == 0L) heavyShakeSinceMs = now;
             stableStreak = 0;
-            if (now - heavyShakeSinceMs > 1600) {
-                tvStabilityHint.setText("حافظ على ثبات الهاتف قليلاً للحصول على أوضح صورة");
-                tvStabilityHint.setVisibility(View.VISIBLE);
-            }
-        } else if (meanDiff < 6.5) {
-            heavyShakeSinceMs = 0L;
-            tvStabilityHint.setVisibility(View.GONE);
-            stableStreak++;
-            if (stableStreak >= 4 && now - lastAutoShotMs > 2400) {
-                lastAutoShotMs = now;
-                stableStreak = 0;
-                captureWithAutofocus();
-            }
         } else {
-            // اهتزاز طفيف: نتجاهله بدون تنبيه وننتظر الثبات
             heavyShakeSinceMs = 0L;
-            tvStabilityHint.setVisibility(View.GONE);
+            if (isCalm && isSharp) {
+                stableStreak++;
+            } else {
+                stableStreak = 0;
+            }
+        }
+
+        final boolean readyForAuto = isAutoMode && res.detected && isCalm && isSharp && stableStreak >= 3
+            && (now - lastAutoShotMs > 2400) && !isCapturing;
+        if (readyForAuto) {
+            lastAutoShotMs = now;
             stableStreak = 0;
+        }
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (currentStep != STEP_CAMERA) return;
+                scannerOverlayView.updateDetection(res.corners, res.detected, isCalm && isSharp);
+                updateCameraStatusHint(res.detected, isShakingHeavy && (heavyShakeSinceMs > 0 && now - heavyShakeSinceMs > 1200), isSharp);
+                if (readyForAuto) {
+                    captureWithAutofocus();
+                }
+            }
+        });
+    }
+
+    private void updateCameraStatusHint(boolean detected, boolean shakingNotice, boolean sharp) {
+        if (currentStep != STEP_CAMERA) {
+            tvStabilityHint.setVisibility(View.GONE);
+            return;
+        }
+        tvStabilityHint.setVisibility(View.VISIBLE);
+        if (!detected) {
+            tvStabilityHint.setText("لم يتم اكتشاف ورقة بوضوح — وجّه الكاميرا نحو المستند");
+            tvStabilityHint.setTextColor(Color.parseColor("#FDE047"));
+        } else if (shakingNotice) {
+            tvStabilityHint.setText("حافظ على ثبات الهاتف قليلاً للحصول على أوضح صورة");
+            tvStabilityHint.setTextColor(Color.parseColor("#FCA5A5"));
+        } else if (!sharp) {
+            tvStabilityHint.setText("تم رصد الورقة — جارٍ ضبط التركيز والوضوح...");
+            tvStabilityHint.setTextColor(Color.parseColor("#5EEAD4"));
+        } else if (isAutoMode) {
+            tvStabilityHint.setText("تم اكتشاف الورقة ✓ ثبّت الهاتف للالتقاط التلقائي");
+            tvStabilityHint.setTextColor(Color.parseColor("#4ADE80"));
+        } else {
+            tvStabilityHint.setText("تم اكتشاف حدود الورقة ✓ اضغط زر الالتقاط اليدوي");
+            tvStabilityHint.setTextColor(Color.parseColor("#4ADE80"));
         }
     }
 
@@ -431,23 +611,57 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                                 fos.write(data);
                                 fos.close();
 
-                                final ScannedPage processed = processOriginalFile(orig, 0, 4);
+                                Bitmap normBmp = DocumentScannerEngine.decodeNormalizedOriginal(orig, 1850);
+                                byte[] gray = DocumentScannerEngine.sampleGrayFromBitmap(normBmp, 160, 213);
+                                DocumentScannerEngine.DetectionResult det =
+                                    DocumentScannerEngine.detectDocumentQuad(gray, 160, 213, 0f);
+                                normBmp.recycle();
+
+                                final boolean detectedOnCapture = det.detected;
+                                final float[] chosenCorners = detectedOnCapture
+                                    ? det.corners
+                                    : DocumentScannerEngine.fullFrameCorners();
+
+                                final ScannedPage processed = processOriginalFile(
+                                    orig,
+                                    chosenCorners,
+                                    detectedOnCapture,
+                                    0,
+                                    DocumentScannerEngine.FILTER_ORIGINAL_COLOR
+                                );
+
                                 runOnUiThread(new Runnable() {
                                     @Override
                                     public void run() {
                                         if (retakeIndex >= 0 && retakeIndex < pages.size()) {
+                                            deletePageTempFiles(pages.get(retakeIndex));
                                             pages.set(retakeIndex, processed);
                                             selectedIndex = retakeIndex;
                                             retakeIndex = -1;
-                                            switchToReview();
+                                            isCapturing = false;
+                                            if (!detectedOnCapture) {
+                                                Toast.makeText(DocumentScannerActivity.this,
+                                                    "تعذر تحديد الحدود تلقائياً — يمكنك ضبط الزوايا يدوياً", Toast.LENGTH_LONG).show();
+                                                openManualCrop(selectedIndex);
+                                            } else {
+                                                switchToReview();
+                                            }
                                         } else {
                                             pages.add(processed);
                                             selectedIndex = pages.size() - 1;
                                             btnOpenReview.setText("مراجعة (" + pages.size() + ")");
-                                        }
-                                        isCapturing = false;
-                                        if (!isInReview && camera != null) {
-                                            try { camera.startPreview(); } catch (Exception ignored) {}
+                                            isCapturing = false;
+                                            if (!detectedOnCapture) {
+                                                Toast.makeText(DocumentScannerActivity.this,
+                                                    "لم تتضح حدود الورقة تلقائياً — عُرضت الصورة كاملة لتحديد الزوايا يدوياً", Toast.LENGTH_LONG).show();
+                                                openManualCrop(selectedIndex);
+                                            } else {
+                                                Toast.makeText(DocumentScannerActivity.this,
+                                                    "✓ تم التقاط الورقة وقصها وتصحيح منظورها (" + pages.size() + ")", Toast.LENGTH_SHORT).show();
+                                                if (currentStep == STEP_CAMERA && camera != null) {
+                                                    try { camera.startPreview(); } catch (Exception ignored) {}
+                                                }
+                                            }
                                         }
                                     }
                                 });
@@ -456,7 +670,8 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                                     @Override
                                     public void run() {
                                         isCapturing = false;
-                                        Toast.makeText(DocumentScannerActivity.this, "تعذر معالجة الورقة (الصفحات السابقة محفوظة)", Toast.LENGTH_SHORT).show();
+                                        Toast.makeText(DocumentScannerActivity.this,
+                                            "تعذر معالجة الورقة (الصفحات السابقة محفوظة)", Toast.LENGTH_SHORT).show();
                                     }
                                 });
                             }
@@ -469,35 +684,16 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         }
     }
 
-    private ScannedPage processOriginalFile(File origFile, int rotationDeg, int cropTrimPct) throws Exception {
-        BitmapFactory.Options opts = new BitmapFactory.Options();
-        opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
-        Bitmap raw = BitmapFactory.decodeFile(origFile.getAbsolutePath(), opts);
-        if (raw == null) throw new Exception("تعذر فك الصورة");
-
-        Bitmap cropped = raw;
-        if (cropTrimPct > 0 && raw.getWidth() > 200 && raw.getHeight() > 200) {
-            int dx = Math.round(raw.getWidth() * (cropTrimPct / 100f));
-            int dy = Math.round(raw.getHeight() * (cropTrimPct / 100f));
-            int cw = Math.max(100, raw.getWidth() - dx * 2);
-            int ch = Math.max(100, raw.getHeight() - dy * 2);
-            cropped = Bitmap.createBitmap(raw, dx, dy, cw, ch);
-            if (cropped != raw) raw.recycle();
-        }
-
-        Bitmap rotated = cropped;
-        if (rotationDeg % 360 != 0) {
-            Matrix matrix = new Matrix();
-            matrix.postRotate(rotationDeg % 360);
-            rotated = Bitmap.createBitmap(cropped, 0, 0, cropped.getWidth(), cropped.getHeight(), matrix, true);
-            if (rotated != cropped) cropped.recycle();
-        }
-
-        Bitmap resized = scaleMaxDim(rotated, 1850);
-        if (resized != rotated) rotated.recycle();
-
-        Bitmap enhanced = enhanceLegalColorBitmap(resized);
-        if (enhanced != resized) resized.recycle();
+    private ScannedPage processOriginalFile(
+        File origFile,
+        float[] corners,
+        boolean autoDetected,
+        int rotationDeg,
+        int filterMode
+    ) throws Exception {
+        Bitmap raw = DocumentScannerEngine.decodeNormalizedOriginal(origFile, 1850);
+        Bitmap enhanced = DocumentScannerEngine.warpRotateAndEnhance(raw, corners, rotationDeg, filterMode, 1850);
+        if (enhanced != raw) raw.recycle();
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         int quality = 88;
@@ -509,7 +705,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
             int tries = 0;
             while (baos.toByteArray().length > SAFE_TARGET_BYTES && tries < 6) {
                 tries++;
-                quality = Math.max(58, quality - 5);
+                quality = Math.max(60, quality - 4);
                 baos.reset();
                 enhanced.compress(Bitmap.CompressFormat.JPEG, quality, baos);
             }
@@ -525,108 +721,32 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         ScannedPage page = new ScannedPage();
         page.originalTempFile = origFile;
         page.processedTempFile = procFile;
-        page.rotationDeg = rotationDeg;
-        page.cropTrimPct = cropTrimPct;
+        page.corners = corners != null ? corners.clone() : DocumentScannerEngine.fullFrameCorners();
+        page.autoDetected = autoDetected;
+        page.rotationDeg = ((rotationDeg % 360) + 360) % 360;
+        page.filterMode = filterMode;
         page.processedBytes = outBytes;
         return page;
     }
 
-    private Bitmap scaleMaxDim(Bitmap src, int maxDim) {
-        int max = Math.max(src.getWidth(), src.getHeight());
-        if (max <= maxDim) return src;
-        float r = (float) maxDim / max;
-        return Bitmap.createScaledBitmap(src, Math.round(src.getWidth() * r), Math.round(src.getHeight() * r), true);
-    }
-
-    // تحسين تلقائي لإزالة الظلال وتوحيد الإضاءة مع الحفاظ التام على الألوان والأختام والتوقيعات
-    private Bitmap enhanceLegalColorBitmap(Bitmap src) {
-        int w = src.getWidth();
-        int h = src.getHeight();
-        int[] pixels = new int[w * h];
-        src.getPixels(pixels, 0, w, 0, 0, w, h);
-
-        int cols = 16;
-        int rows = 20;
-        float[] bgGrid = new float[cols * rows];
-        float cellW = (float) w / cols;
-        float cellH = (float) h / rows;
-
-        for (int gy = 0; gy < rows; gy++) {
-            int y0 = (int) (gy * cellH);
-            int y1 = Math.min(h, (int) ((gy + 1) * cellH));
-            for (int gx = 0; gx < cols; gx++) {
-                int x0 = (int) (gx * cellW);
-                int x1 = Math.min(w, (int) ((gx + 1) * cellW));
-                int stepY = Math.max(1, (y1 - y0) / 5);
-                int stepX = Math.max(1, (x1 - x0) / 5);
-                float[] lums = new float[36];
-                int n = 0;
-                for (int y = y0; y < y1 && n < 36; y += stepY) {
-                    for (int x = x0; x < x1 && n < 36; x += stepX) {
-                        int c = pixels[y * w + x];
-                        int r = (c >> 16) & 0xFF;
-                        int g = (c >> 8) & 0xFF;
-                        int b = c & 0xFF;
-                        lums[n++] = 0.299f * r + 0.587f * g + 0.114f * b;
-                    }
-                }
-                if (n > 0) {
-                    Arrays.sort(lums, 0, n);
-                    bgGrid[gy * cols + gx] = Math.max(95f, lums[Math.min(n - 1, (int) (n * 0.88f))]);
-                } else {
-                    bgGrid[gy * cols + gx] = 235f;
-                }
-            }
-        }
-
-        for (int y = 0; y < h; y++) {
-            int gy = Math.min(rows - 1, (int) (y / cellH));
-            for (int x = 0; x < w; x++) {
-                int gx = Math.min(cols - 1, (int) (x / cellW));
-                float localBg = bgGrid[gy * cols + gx];
-                float gain = Math.min(1.85f, Math.max(0.95f, 242f / Math.max(85f, localBg)));
-                float effGain = 1f + (gain - 1f) * 0.72f;
-
-                int c = pixels[y * w + x];
-                float r = ((c >> 16) & 0xFF) * effGain;
-                float g = ((c >> 8) & 0xFF) * effGain;
-                float b = (c & 0xFF) * effGain;
-
-                float lum = 0.299f * r + 0.587f * g + 0.114f * b;
-                float chroma = Math.max(r, Math.max(g, b)) - Math.min(r, Math.min(g, b));
-                if (chroma < 26f && lum > 205f) {
-                    float lift = (lum - 205f) * 0.28f;
-                    r += lift; g += lift; b += lift;
-                } else if (lum < 155f) {
-                    float darken = (155f - lum) * 0.12f;
-                    r -= darken; g -= darken; b -= darken;
-                }
-
-                int ir = Math.max(0, Math.min(255, Math.round(r)));
-                int ig = Math.max(0, Math.min(255, Math.round(g)));
-                int ib = Math.max(0, Math.min(255, Math.round(b)));
-                pixels[y * w + x] = 0xFF000000 | (ir << 16) | (ig << 8) | ib;
-            }
-        }
-
-        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        out.setPixels(pixels, 0, w, 0, 0, w, h);
-        return out;
-    }
-
-    private void rotateCurrentPage45() {
+    private void rotateCurrentPage90(final int deltaDeg) {
         if (pages.isEmpty()) return;
-        final ScannedPage page = pages.get(selectedIndex);
-        final int nextDeg = (page.rotationDeg + 45) % 360;
+        final int targetIdx = selectedIndex;
+        final ScannedPage page = pages.get(targetIdx);
+        final int nextDeg = (page.rotationDeg + deltaDeg + 360) % 360;
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    final ScannedPage updated = processOriginalFile(page.originalTempFile, nextDeg, page.cropTrimPct);
+                    final ScannedPage updated = processOriginalFile(
+                        page.originalTempFile, page.corners, page.autoDetected, nextDeg, page.filterMode);
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            pages.set(selectedIndex, updated);
+                            if (page.processedTempFile != null && page.processedTempFile.exists()) {
+                                page.processedTempFile.delete();
+                            }
+                            pages.set(targetIdx, updated);
                             updateReviewPreview();
                         }
                     });
@@ -635,27 +755,135 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         }).start();
     }
 
-    private void cycleCropMargin() {
+    private void changeCurrentFilterMode(final int newFilterMode) {
         if (pages.isEmpty()) return;
-        final ScannedPage page = pages.get(selectedIndex);
-        final int nextCrop = page.cropTrimPct == 4 ? 8 : (page.cropTrimPct == 8 ? 0 : 4);
+        final int targetIdx = selectedIndex;
+        final ScannedPage page = pages.get(targetIdx);
+        if (page.filterMode == newFilterMode) return;
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    final ScannedPage updated = processOriginalFile(page.originalTempFile, page.rotationDeg, nextCrop);
+                    final ScannedPage updated = processOriginalFile(
+                        page.originalTempFile, page.corners, page.autoDetected, page.rotationDeg, newFilterMode);
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            pages.set(selectedIndex, updated);
+                            if (page.processedTempFile != null && page.processedTempFile.exists()) {
+                                page.processedTempFile.delete();
+                            }
+                            pages.set(targetIdx, updated);
                             updateReviewPreview();
-                            Toast.makeText(DocumentScannerActivity.this,
-                                "تم ضبط هامش القص: " + nextCrop + "%", Toast.LENGTH_SHORT).show();
                         }
                     });
                 } catch (Exception ignored) {}
             }
         }).start();
+    }
+
+    private void openManualCrop(int index) {
+        if (index < 0 || index >= pages.size()) return;
+        selectedIndex = index;
+        final ScannedPage page = pages.get(index);
+        currentStep = STEP_CROP;
+        releaseCamera();
+
+        surfaceView.setVisibility(View.GONE);
+        scannerOverlayView.setVisibility(View.GONE);
+        ivPreview.setVisibility(View.GONE);
+        cropOverlayView.setVisibility(View.VISIBLE);
+        tvStabilityHint.setVisibility(View.GONE);
+
+        layoutCameraControls.setVisibility(View.GONE);
+        layoutReviewControls.setVisibility(View.GONE);
+        layoutCropControls.setVisibility(View.VISIBLE);
+        tvTitle.setText("تحديد زوايا قص الورقة يدوياً");
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final Bitmap raw = DocumentScannerEngine.decodeNormalizedOriginal(page.originalTempFile, 1600);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (cropEditingBitmap != null && !cropEditingBitmap.isRecycled()) {
+                                cropEditingBitmap.recycle();
+                            }
+                            cropEditingBitmap = raw;
+                            cropOverlayView.setImageAndCorners(raw, page.corners);
+                        }
+                    });
+                } catch (Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(DocumentScannerActivity.this, "تعذر فتح محرر القص", Toast.LENGTH_SHORT).show();
+                            switchToReview();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void redetectCornersInCropView() {
+        if (cropEditingBitmap == null) return;
+        byte[] gray = DocumentScannerEngine.sampleGrayFromBitmap(cropEditingBitmap, 160, 213);
+        DocumentScannerEngine.DetectionResult res =
+            DocumentScannerEngine.detectDocumentQuad(gray, 160, 213, 0f);
+        if (res.detected) {
+            cropOverlayView.setImageAndCorners(cropEditingBitmap, res.corners);
+            Toast.makeText(this, "✓ تم إعادة اكتشاف الزوايا الأربع", Toast.LENGTH_SHORT).show();
+        } else {
+            cropOverlayView.setImageAndCorners(cropEditingBitmap, DocumentScannerEngine.fullFrameCorners());
+            Toast.makeText(this, "لم يتضح مستند منفصل — يمكنك سحب الزوايا يدوياً", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void applyManualCropCorners() {
+        if (selectedIndex < 0 || selectedIndex >= pages.size()) return;
+        final int targetIdx = selectedIndex;
+        final ScannedPage page = pages.get(targetIdx);
+        final float[] editedCorners = cropOverlayView.getCorners();
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final ScannedPage updated = processOriginalFile(
+                        page.originalTempFile, editedCorners, true, page.rotationDeg, page.filterMode);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (page.processedTempFile != null && page.processedTempFile.exists()) {
+                                page.processedTempFile.delete();
+                            }
+                            pages.set(targetIdx, updated);
+                            closeCropScreenToReview();
+                            Toast.makeText(DocumentScannerActivity.this, "✓ تم تطبيق القص وتصحيح المنظور", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                } catch (Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(DocumentScannerActivity.this, "تعذر تطبيق القص", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void closeCropScreenToReview() {
+        cropOverlayView.setVisibility(View.GONE);
+        layoutCropControls.setVisibility(View.GONE);
+        if (cropEditingBitmap != null && !cropEditingBitmap.isRecycled()) {
+            cropEditingBitmap.recycle();
+            cropEditingBitmap = null;
+        }
+        switchToReview();
     }
 
     private void movePage(int delta) {
@@ -676,8 +904,8 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         for (int i = 0; i < pages.size(); i++) {
             ScannedPage p = pages.get(i);
             TextView label = new TextView(this);
-            label.setText(String.format(Locale.US, "صفحة %d (Scan_%03d.jpg) • %.1f KB",
-                i + 1, i + 1, p.processedBytes.length / 1024f));
+            label.setText(String.format(Locale.US, "صفحة %d (Scan_%03d.jpg) • %.1f KB • %d°",
+                i + 1, i + 1, p.processedBytes.length / 1024f, p.rotationDeg));
             label.setPadding(0, 12, 0, 8);
             container.addView(label);
 
@@ -697,7 +925,8 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
     private void deleteCurrentPage() {
         if (pages.isEmpty()) return;
-        pages.remove(selectedIndex);
+        ScannedPage removed = pages.remove(selectedIndex);
+        deletePageTempFiles(removed);
         if (pages.isEmpty()) {
             switchToCamera();
         } else {
@@ -707,23 +936,33 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     }
 
     private void switchToReview() {
-        isInReview = true;
+        currentStep = STEP_REVIEW;
         releaseCamera();
         surfaceView.setVisibility(View.GONE);
+        scannerOverlayView.setVisibility(View.GONE);
+        cropOverlayView.setVisibility(View.GONE);
         ivPreview.setVisibility(View.VISIBLE);
+        tvStabilityHint.setVisibility(View.GONE);
+
         layoutCameraControls.setVisibility(View.GONE);
+        layoutCropControls.setVisibility(View.GONE);
         layoutReviewControls.setVisibility(View.VISIBLE);
         updateReviewPreview();
     }
 
     private void switchToCamera() {
-        isInReview = false;
+        currentStep = STEP_CAMERA;
         ivPreview.setVisibility(View.GONE);
+        cropOverlayView.setVisibility(View.GONE);
         surfaceView.setVisibility(View.VISIBLE);
+        scannerOverlayView.setVisibility(View.VISIBLE);
+
         layoutReviewControls.setVisibility(View.GONE);
+        layoutCropControls.setVisibility(View.GONE);
         layoutCameraControls.setVisibility(View.VISIBLE);
-        tvTitle.setText("تصوير المستندات أوفلاين");
+        tvTitle.setText("ماسح المستندات الضوئي");
         btnOpenReview.setText("مراجعة (" + pages.size() + ")");
+        updateCameraStatusHint(false, false, false);
         openCamera();
     }
 
@@ -738,11 +977,112 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         btnNextPage.setEnabled(selectedIndex < pages.size() - 1);
         btnMovePrev.setEnabled(selectedIndex > 0);
         btnMoveNext.setEnabled(selectedIndex < pages.size() - 1);
+
+        updateFilterButtonStyles(cur.filterMode);
     }
 
-    private void saveDualOutputs(final boolean allowOversized) {
+    private void updateFilterButtonStyles(int mode) {
+        btnFilterColor.setBackgroundResource(mode == DocumentScannerEngine.FILTER_ORIGINAL_COLOR
+            ? R.drawable.bg_share_button : R.drawable.bg_icon_box);
+        btnFilterColor.setTextColor(mode == DocumentScannerEngine.FILTER_ORIGINAL_COLOR
+            ? Color.parseColor("#09183B") : Color.WHITE);
+        btnFilterColor.setText(mode == DocumentScannerEngine.FILTER_ORIGINAL_COLOR ? "ألوان أصلية ✓" : "ألوان أصلية");
+
+        btnFilterGray.setBackgroundResource(mode == DocumentScannerEngine.FILTER_GRAYSCALE
+            ? R.drawable.bg_share_button : R.drawable.bg_icon_box);
+        btnFilterGray.setTextColor(mode == DocumentScannerEngine.FILTER_GRAYSCALE
+            ? Color.parseColor("#09183B") : Color.WHITE);
+        btnFilterGray.setText(mode == DocumentScannerEngine.FILTER_GRAYSCALE ? "تدرج رمادي ✓" : "تدرج رمادي");
+
+        btnFilterBw.setBackgroundResource(mode == DocumentScannerEngine.FILTER_BLACK_WHITE
+            ? R.drawable.bg_share_button : R.drawable.bg_icon_box);
+        btnFilterBw.setTextColor(mode == DocumentScannerEngine.FILTER_BLACK_WHITE
+            ? Color.parseColor("#09183B") : Color.WHITE);
+        btnFilterBw.setText(mode == DocumentScannerEngine.FILTER_BLACK_WHITE ? "أبيض وأسود ✓" : "أبيض وأسود");
+    }
+
+    // ==================== أ. حفظ الصور منفردة في معرض الهاتف (< 500 KB) ====================
+    private void saveImagesOnly() {
         if (pages.isEmpty()) return;
-        btnSaveDual.setEnabled(false);
+        btnSaveImagesOnly.setEnabled(false);
+        btnSavePdfOnly.setEnabled(false);
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    for (int i = 0; i < pages.size(); i++) {
+                        ScannedPage page = pages.get(i);
+                        byte[] bytesToSave = ensureImageUnder500KB(page.processedBytes);
+                        String name = String.format(Locale.US, "Scan_%03d.jpg", i + 1);
+                        saveImageGallery(bytesToSave, name);
+                    }
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            btnSaveImagesOnly.setEnabled(true);
+                            btnSavePdfOnly.setEnabled(true);
+                            new AlertDialog.Builder(DocumentScannerActivity.this)
+                                .setTitle("تم حفظ الصور بالمعرض")
+                                .setMessage("تم حفظ " + pages.size() + " صورة بنجاح في Pictures/ManzomaLawyer (< 500 KB لكل صورة).\nهل تريد البقاء لتصدير PDF أيضاً أم إغلاق الماسح؟")
+                                .setPositiveButton("البقاء في المراجعة", null)
+                                .setNegativeButton("تم، إغلاق", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        cleanupAllTempFiles();
+                                        finish();
+                                    }
+                                }).show();
+                        }
+                    });
+                } catch (final Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            btnSaveImagesOnly.setEnabled(true);
+                            btnSavePdfOnly.setEnabled(true);
+                            Toast.makeText(DocumentScannerActivity.this,
+                                "فشل حفظ الصور (الملفات المؤقتة محفوظة لإعادة المحاولة): " + e.getMessage(),
+                                Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private byte[] ensureImageUnder500KB(byte[] currentBytes) throws Exception {
+        // إذا كانت الصورة أقل من 500 KB بالفعل، نحفظها مباشرة دون إعادة معالجة غير ضرورية
+        if (currentBytes.length < STRICT_500KB) {
+            return currentBytes;
+        }
+        Bitmap bmp = BitmapFactory.decodeByteArray(currentBytes, 0, currentBytes.length);
+        if (bmp == null) throw new Exception("تعذر قراءة الصورة للحفظ");
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        int quality = 80;
+        bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos);
+        int tries = 0;
+        while (baos.toByteArray().length >= STRICT_500KB && tries < 6) {
+            tries++;
+            quality = Math.max(55, quality - 5);
+            baos.reset();
+            bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos);
+        }
+        bmp.recycle();
+        byte[] out = baos.toByteArray();
+        if (out.length >= STRICT_500KB) {
+            throw new Exception("تجاوزت صورة حجم 500 KB");
+        }
+        return out;
+    }
+
+    // ==================== ب. حفظ ملف PDF واحد لجميع الصفحات (< 500 KB أو موافقة صريحة) ====================
+    private void savePdfOnly(final boolean allowOversized) {
+        if (pages.isEmpty()) return;
+        btnSaveImagesOnly.setEnabled(false);
+        btnSavePdfOnly.setEnabled(false);
+
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -753,15 +1093,16 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                btnSaveDual.setEnabled(true);
+                                btnSaveImagesOnly.setEnabled(true);
+                                btnSavePdfOnly.setEnabled(true);
                                 new AlertDialog.Builder(DocumentScannerActivity.this)
                                     .setTitle("تنبيه حجم ملف PDF")
-                                    .setMessage("تعذر تقليص ملف Scanned_Document.pdf لأقل من 500 KB دون المساس بجودة النصوص.\nالحجم الفعلي: " + sizeKb + " KB\nهل توافق على الحفظ؟")
-                                    .setNegativeButton("إلغاء", null)
-                                    .setPositiveButton("حفظ رغم ذلك", new DialogInterface.OnClickListener() {
+                                    .setMessage("تعذر تقليص ملف Scanned_Document.pdf لأقل من 500 KB دون الإضرار بوضوح الكتابة والأختام.\nالحجم الفعلي: " + sizeKb + " KB\nهل توافق على الحفظ بهذا الحجم؟")
+                                    .setNegativeButton("إلغاء والعودة", null)
+                                    .setPositiveButton("نعم، حفظ ملف PDF", new DialogInterface.OnClickListener() {
                                         @Override
                                         public void onClick(DialogInterface dialog, int which) {
-                                            saveDualOutputs(true);
+                                            savePdfOnly(true);
                                         }
                                     }).show();
                             }
@@ -769,41 +1110,35 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                         return;
                     }
 
-                    // 1. حفظ الصور المنفصلة Scan_001.jpg.. والتحقق من < 500 KB
-                    for (int i = 0; i < pages.size(); i++) {
-                        byte[] imgBytes = pages.get(i).processedBytes;
-                        if (imgBytes.length >= STRICT_500KB) {
-                            throw new Exception("تجاوزت صورة حجم 500 KB");
-                        }
-                        String name = String.format(Locale.US, "Scan_%03d.jpg", i + 1);
-                        saveImageGallery(imgBytes, name);
-                    }
-
-                    // 2. حفظ Scanned_Document.pdf بالتنزيلات
                     savePdfDownloads(pdfBytes, "Scanned_Document.pdf");
-
-                    // 3. حذف الملفات المؤقتة بعد التأكد التام من نجاح الحفظ المزدوج
-                    for (ScannedPage p : pages) {
-                        if (p.originalTempFile != null && p.originalTempFile.exists()) p.originalTempFile.delete();
-                        if (p.processedTempFile != null && p.processedTempFile.exists()) p.processedTempFile.delete();
-                    }
+                    final String pdfKb = String.format(Locale.US, "%.1f", pdfBytes.length / 1024f);
 
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Toast.makeText(DocumentScannerActivity.this,
-                                "✅ تم حفظ " + pages.size() + " صور بالمعرض و Scanned_Document.pdf بالتنزيلات",
-                                Toast.LENGTH_LONG).show();
-                            finish();
+                            btnSaveImagesOnly.setEnabled(true);
+                            btnSavePdfOnly.setEnabled(true);
+                            new AlertDialog.Builder(DocumentScannerActivity.this)
+                                .setTitle("تم حفظ ملف PDF بالتنزيلات")
+                                .setMessage("تم حفظ Scanned_Document.pdf (" + pages.size() + " صفحات • " + pdfKb + " KB) في مجلد التنزيلات بنجاح.\nهل تريد إغلاق الماسح أم البقاء لحفظ الصور أيضاً؟")
+                                .setPositiveButton("البقاء", null)
+                                .setNegativeButton("تم، إغلاق", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        cleanupAllTempFiles();
+                                        finish();
+                                    }
+                                }).show();
                         }
                     });
                 } catch (final Exception e) {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            btnSaveDual.setEnabled(true);
+                            btnSaveImagesOnly.setEnabled(true);
+                            btnSavePdfOnly.setEnabled(true);
                             Toast.makeText(DocumentScannerActivity.this,
-                                "فشل الحفظ (المستندات محفوظة لإعادة المحاولة): " + e.getMessage(),
+                                "فشل حفظ PDF (الصفحات المؤقتة محفوظة لإعادة المحاولة): " + e.getMessage(),
                                 Toast.LENGTH_LONG).show();
                         }
                     });
@@ -825,6 +1160,13 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
             pdf = renderPagesToPdf(maxDim, quality);
         }
         return pdf;
+    }
+
+    private Bitmap scaleMaxDim(Bitmap src, int maxDim) {
+        int max = Math.max(src.getWidth(), src.getHeight());
+        if (max <= maxDim) return src;
+        float r = (float) maxDim / max;
+        return Bitmap.createScaledBitmap(src, Math.round(src.getWidth() * r), Math.round(src.getHeight() * r), true);
     }
 
     private byte[] renderPagesToPdf(int maxDim, int quality) throws Exception {
@@ -919,13 +1261,27 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         fos.close();
     }
 
+    private void deletePageTempFiles(ScannedPage p) {
+        if (p == null) return;
+        if (p.originalTempFile != null && p.originalTempFile.exists()) p.originalTempFile.delete();
+        if (p.processedTempFile != null && p.processedTempFile.exists()) p.processedTempFile.delete();
+    }
+
+    private void cleanupAllTempFiles() {
+        for (ScannedPage p : pages) {
+            deletePageTempFiles(p);
+        }
+        pages.clear();
+    }
+
     @Override
     protected void onDestroy() {
         releaseCamera();
-        for (ScannedPage p : pages) {
-            if (p.originalTempFile != null && p.originalTempFile.exists()) p.originalTempFile.delete();
-            if (p.processedTempFile != null && p.processedTempFile.exists()) p.processedTempFile.delete();
+        if (cropEditingBitmap != null && !cropEditingBitmap.isRecycled()) {
+            cropEditingBitmap.recycle();
+            cropEditingBitmap = null;
         }
+        cleanupAllTempFiles();
         super.onDestroy();
     }
 }
