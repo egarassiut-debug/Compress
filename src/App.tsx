@@ -14,15 +14,33 @@ import {
   Scale,
   KeyRound,
   Package,
+  Scan,
+  FlaskConical,
+  Lock,
 } from 'lucide-react';
 import { PhoneSimulator } from './components/PhoneSimulator';
+import { DevScannerSimulator } from './components/DevScannerSimulator';
 import { CodeViewer } from './components/CodeViewer';
 import { SetupGuide } from './components/SetupGuide';
-import { downloadFlutterProjectZip, downloadRealApkDirectly } from './utils/zipGenerator';
+import {
+  downloadFlutterProjectZip,
+  downloadRealApkDirectly,
+  downloadScannerDevFlutterZip,
+} from './utils/zipGenerator';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'simulator' | 'code' | 'guide' | 'specs'>('simulator');
+  const [activeTab, setActiveTab] = useState<'simulator' | 'dev_scanner' | 'code' | 'guide' | 'specs'>('simulator');
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+  const [isDownloadingDevZip, setIsDownloadingDevZip] = useState(false);
+
+  const handleDownloadDevZip = async () => {
+    setIsDownloadingDevZip(true);
+    try {
+      await downloadScannerDevFlutterZip();
+    } finally {
+      setIsDownloadingDevZip(false);
+    }
+  };
 
   const handleDownloadZip = async () => {
     setIsDownloadingZip(true);
@@ -39,13 +57,15 @@ export default function App() {
       <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-900 via-blue-800 to-indigo-900 flex items-center justify-center text-white shadow-lg shadow-blue-900/40 ring-1 ring-white/20">
-              <Gavel size={22} className="text-amber-400" />
-            </div>
+            <img
+              src="/assets/aistudio/file_000000003be88210b8ab595d3092ddb5_363c131a.png"
+              alt="أيقونة تطبيق ضغطة"
+              className="w-11 h-11 rounded-2xl object-cover shadow-lg shadow-blue-950/50 ring-1 ring-amber-400/50 bg-[#060E24]"
+            />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-lg font-black text-white tracking-tight">
-                  تصغير حجم الصور للمنظومة ⚖️
+                  ضغطة <span className="text-amber-400 text-xs font-bold">• تصغير حجم الصور والـ PDF</span>
                 </h1>
                 <span className="text-[10px] bg-teal-500/15 text-teal-300 font-bold px-2 py-0.5 rounded-full border border-teal-500/25 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-teal-400" />
@@ -53,7 +73,7 @@ export default function App() {
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden sm:block">
-                تطبيق خدمي مخصص للسادة المحامين: صور أقل من 200 KB وملفات PDF أقل من 500 KB مع ألوان كاملة وترشيح فائق الجودة.
+                تطبيق خدمي مخصص للسادة المحامين: معيار موحد أقل من 500 KB للصور وملفات PDF مع ألوان كاملة وترشيح فائق الجودة.
               </p>
             </div>
           </div>
@@ -64,7 +84,7 @@ export default function App() {
               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-emerald-900/30 transition-all active:scale-95"
             >
               <Package size={16} />
-              <span>تنزيل ملف APK المترجم (1.5 MB)</span>
+              <span>تنزيل ملف APK المترجم (2.1 MB)</span>
             </button>
 
             <button
@@ -89,7 +109,22 @@ export default function App() {
             }`}
           >
             <Smartphone size={16} />
-            <span>المحاكي التفاعلي المباشر (استخدام فوري بدون شاشة تسجيل دخول)</span>
+            <span>المحاكي التفاعلي المباشر (النسخة المستقرة)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('dev_scanner')}
+            className={`flex items-center gap-2 px-4 py-2.5 border-b-2 text-xs sm:text-sm font-bold transition-all shrink-0 ${
+              activeTab === 'dev_scanner'
+                ? 'border-teal-400 text-teal-300 bg-teal-500/15 rounded-t-xl'
+                : 'border-transparent text-slate-400 hover:text-teal-200'
+            }`}
+          >
+            <FlaskConical size={16} />
+            <span>نسخة التطوير (خدمة التصوير)</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
+              معزولة .dev
+            </span>
           </button>
 
           <button
@@ -125,7 +160,7 @@ export default function App() {
             }`}
           >
             <Target size={16} />
-            <span>معايير منظومة النيابة العامة (&lt; 200 KB للصور و &lt; 500 KB للـ PDF)</span>
+            <span>معايير منظومة النيابة العامة (&lt; 500 KB موحداً للصور والـ PDF)</span>
           </button>
         </div>
       </header>
@@ -147,7 +182,7 @@ export default function App() {
                   <span>تطبيق مهني خدمي متوافق مع بوابة النيابة ومصر الرقمية</span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-white mb-3">
-                  تطبيق &quot;تصغير حجم الصور للمنظومة&quot;
+                  تطبيق &quot;ضغطة&quot; — تصغير حجم الصور والـ PDF للمنظومة
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-6">
                   تم تصميم وتطوير التطبيق لخدمة السادة المحامين عند رفع أوراق القضايا، والتوكيلات، وبطاقات الرقم القومي، ومذكرات الدفاع على بوابات العدالة الإلكترونية ومصر الرقمية دون أن ترفض المنظومة المستندات بسبب تجاوز الحجم المسموح.
@@ -189,10 +224,10 @@ export default function App() {
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-white mb-1">
-                        أ) تصغير حجم الصورة بحد أقصى 200 KB وحفظها بالمعرض
+                        أ) تصغير حجم الصورة بحد أقصى 500 KB وحفظها بالمعرض (Zero Data Loss)
                       </h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        ترشيح فائق الجودة (Lanczos/Stepped Resampling) مع الحفاظ التام على الألوان والأختام وحِدة الخطوط، وضمان حجم صارم أقل من 200 KB مع الحفظ المباشر في ألبوم الصور (Gallery).
+                        تصغير هندسي ذكي لأبعاد A4 وترشيح فائق الجودة مع الحفاظ التام على الألوان والأختام وحِدة الحروف والأرقام، وضمان حجم أقل من 500 KB مع الحفظ الفوري بالمعرض.
                       </p>
                     </div>
                   </div>
@@ -203,10 +238,10 @@ export default function App() {
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-white mb-1">
-                        ب) تصغير حجم ملف PDF بحد أقصى 500 KB مع نافذة مشاركة فورية
+                        ب) تصغير حجم ملف PDF بحد أقصى 500 KB مع حفظ فوري
                       </h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        فحص حجم ملف الـ PDF الناتج تلقائياً: إذا تجاوز 450 كيلوبايت يتم إعادة ضغطه وخفض جودته تلقائياً حتى يقل حتماً عن 500 KB مع فتح نافذة الحفظ والمشاركة المباشرة (Save/Share Sheet).
+                        حماية النصوص الفيكتورية ومعالجة الصفحات المصورة بدقة A4 عالية الألوان حتى تقل عن 500 KB مع حفظ تلقائي فوري ورسالة 3 ثوانٍ تتضمن زر [ فتح ].
                       </p>
                     </div>
                   </div>
@@ -220,7 +255,34 @@ export default function App() {
                         ج) دمج الصور في ملف PDF واحد (&lt; 500 KB)
                       </h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        تحجيم أبعاد كل صورة داخل المستند لأقصى 800 بكسل وضغط جودتها مع إعادة ضغط تلقائي عند 450 KB لضمان ملف موحد لا يتجاوز 500 KB مع إمكانية إرساله فوراً للمنظومة أو عبر واتساب.
+                        تحجيم ذكي لأبعاد صفحة A4 مع الحفاظ التام على الألوان والأختام الرسمية (بدون أبيض وأسود) لضمان ملف موحد لا يتجاوز 500 KB بحِدة تامة.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-teal-600/25 text-teal-300 flex items-center justify-center shrink-0 font-bold text-xs">
+                      6
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white mb-1">
+                        د) تصوير المستندات وتحسينها وضغطها (أوفلاين بالكامل)
+                      </h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        تصوير تلقائي أو يدوي لصفحات غير محدودة مع اكتشاف وتعديل حدود القص، تصحيح المنظور، تدوير 45°، تحسين الألوان وتقليل الظلال مع الحفظ المزدوج (&lt; 500 KB للصور Scan_001.. بالمعرض وللمستند Scanned_Document.pdf بالتنزيلات).
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-violet-500/20 text-violet-300 flex items-center justify-center shrink-0 font-bold text-xs">
+                      7
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white mb-1">
+                        هـ) البوابات القانونية الرسمية (10 مواقع)
+                      </h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        وصول فوري مباشر لمنصات النيابة العامة ومحكمة الأسرة وبوابة مصر الرقمية ووزارة العدل وغيرها دون مغادرة التطبيق.
                       </p>
                     </div>
                   </div>
@@ -247,6 +309,100 @@ export default function App() {
           </div>
         )}
 
+        {activeTab === 'dev_scanner' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            <div className="lg:col-span-5 flex justify-center">
+              <DevScannerSimulator />
+            </div>
+
+            <div className="lg:col-span-7 space-y-6">
+              <div className="bg-slate-900/80 border border-teal-500/30 rounded-3xl p-6 sm:p-7">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2 text-teal-300 font-bold text-xs">
+                    <FlaskConical size={16} />
+                    <span>بيئة التطوير المعزولة — خدمة تصوير المستندات ضوئياً</span>
+                  </div>
+                  <span className="text-[11px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5">
+                    <Lock size={12} />
+                    النسخة المستقرة وملف APK الأصلي محميان 100%
+                  </span>
+                </div>
+
+                <h2 className="text-xl sm:text-2xl font-black text-white mb-3">
+                  تطبيق «ضغطة (تجريبي)» — معمل خدمة التصوير والماسح الضوئي
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-5">
+                  تعمل هذه النسخة في مسار تطوير مستقل تماماً لتجربة خدمة تصوير المستندات وتحسينها وقصها وتدويرها وضغطها لأقل من 500 KB (صور في المعرض وPDF في التنزيلات) دون أي مساس بالنسخة الأصلية المستقرة أو إعدادات الضغط الحالية.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                  <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
+                    <div className="text-[11px] text-slate-400 font-bold mb-1">معرف الحزمة المستقرة (محمي)</div>
+                    <div className="text-xs font-mono text-blue-300" dir="ltr">
+                      com.example.legal_file_compressor
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-1">الاسم على الهاتف: ضغطة (4 خدمات فقط)</div>
+                  </div>
+
+                  <div className="bg-slate-950/70 border border-teal-500/30 rounded-2xl p-4">
+                    <div className="text-[11px] text-teal-300 font-bold mb-1">معرف نسخة التطوير (مستقل)</div>
+                    <div className="text-xs font-mono text-teal-200" dir="ltr">
+                      com.example.legal_file_compressor.dev
+                    </div>
+                    <div className="text-[11px] text-slate-300 mt-1">الاسم على الهاتف: ضغطة (تجريبي) — تثبيت جانبي آمن</div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-2 mb-5 text-xs">
+                  <div className="font-bold text-white flex items-center gap-2">
+                    <Scan size={15} className="text-teal-400" />
+                    <span>مسارات نسخة التطوير المعزولة داخل المشروع:</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5 text-[11px] text-slate-300 font-mono" dir="ltr">
+                    <div>• Flutter Dev Source: dev-scanner/flutter-app/</div>
+                    <div>• Complete Dev ZIP: public/daghta_scanner_dev_flutter.zip</div>
+                    <div>• Phone Build Guide: dev-scanner/flutter-app/BUILD_FROM_PHONE.md</div>
+                    <div>• Target Output APK: dev-scanner/apk/daghta-scanner-dev.apk</div>
+                  </div>
+                  <div className="bg-amber-950/35 border border-amber-500/30 rounded-xl p-3 mt-2 space-y-1 text-[11px] text-amber-200 leading-relaxed">
+                    <div className="font-bold text-amber-300">📱 البناء من هاتف Android فقط (بدون كمبيوتر):</div>
+                    <div>1. نزّل حزمة <span className="font-mono" dir="ltr">daghta_scanner_dev_flutter.zip</span> وفك ضغطها على هاتفك.</div>
+                    <div>2. الحزمة لا تحتوي على APK قديم وتضم كامل ملفات Gradle/Kotlin/CI وملف <span className="font-mono" dir="ltr">BUILD_FROM_PHONE.md</span>.</div>
+                    <div>3. ارفع المجلد إلى GitHub أو Codemagic من متصفح الهاتف لتشغيل البناء السحابي المجاني والحصول على <span className="font-mono" dir="ltr">daghta-scanner-dev.apk</span> مباشرة على هاتفك.</div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={handleDownloadDevZip}
+                    disabled={isDownloadingDevZip}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-teal-900/30 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <Download size={16} />
+                    <span>
+                      {isDownloadingDevZip
+                        ? 'جاري تجهيز حزمة التطوير...'
+                        : 'تنزيل مشروع Flutter التجريبي (daghta_scanner_dev_flutter.zip)'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6">
+                <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                  <ShieldCheck size={18} className="text-emerald-400" />
+                  <span>ضمان حماية خوارزميات الضغط الحالية (Zero Regression)</span>
+                </h3>
+                <ul className="text-xs text-slate-300 space-y-1.5 leading-relaxed">
+                  <li>• لم يتم تعديل أي معاملات جودة أو حدود مساحة في خدمات الضغط المستقرة (&lt; 500 KB).</li>
+                  <li>• ملفات النسخة المستقرة <span className="font-mono" dir="ltr">public/app-debug.apk</span> و<span className="font-mono" dir="ltr">APK_DOWNLOAD/app-debug.apk</span> لم تُمس نهائياً.</li>
+                  <li>• تثبيت <span className="font-mono" dir="ltr">daghta-scanner-dev.apk</span> بعد بنائه يضيف أيقونة مستقلة باسم «ضغطة (تجريبي)» بجانب التطبيق الأصلي دون استبداله.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'code' && <CodeViewer />}
 
         {activeTab === 'guide' && <SetupGuide />}
@@ -263,9 +419,9 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800">
-                  <div className="text-blue-400 font-bold text-sm mb-2">صور التوكيل والبطاقة (&lt; 200 KB صارماً)</div>
+                  <div className="text-blue-400 font-bold text-sm mb-2">صور التوكيل والبطاقة (&lt; 500 KB موحداً)</div>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    يقوم التطبيق بضغط وتحجيم الصور الفردية لتكون دائماً أقل من 200 KB مع الحفاظ التام على الألوان والأختام وحِدة الخطوط وحفظها مباشرة في المعرض.
+                    يقوم التطبيق بتحجيم وضغط الصور الفردية لتكون دائماً أقل من 500 KB (توافقاً مع التحديث الجديد لمنصة النيابة العامة) مع الحفاظ التام على الألوان والأختام وحِدة النصوص وحفظها فوراً بالمعرض.
                   </p>
                 </div>
 
@@ -309,15 +465,16 @@ export default function App() {
       {/* شريط التذييل */}
       <footer className="border-t border-slate-800/80 bg-slate-950 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <span>
-            تطبيق &quot;تصغير حجم الصور للمنظومة&quot; • تصميم وتنفيذ: مصطفى فرويز المحامي
-          </span>
+          <div className="flex flex-col items-center sm:items-start leading-tight gap-0.5">
+            <span>تصميم وتنفيذ: مصطفى فرويز المحامي</span>
+            <span dir="ltr">Al-Hawai Tech</span>
+          </div>
           <div className="flex items-center gap-4 text-[11px] text-slate-400">
+            <span>تطبيق ضغطة (&lt; 500 KB)</span>
+            <span>•</span>
             <span>فتح فوري بدون تسجيل دخول</span>
             <span>•</span>
-            <span>&lt; 200 KB للصور • &lt; 500 KB للـ PDF</span>
-            <span>•</span>
-            <span>حفظ بالمعرض ومشاركة فورية</span>
+            <span>حفظ تلقائي بالمعرض والتنزيلات</span>
           </div>
         </div>
       </footer>

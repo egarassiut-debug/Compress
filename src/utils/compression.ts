@@ -89,15 +89,16 @@ function highQualityResizeCanvas(
 }
 
 /**
- * ضغط ذكي وعالي الجودة للصور الفردية:
- * 1. إذا كان حجم الصورة الأصلي أقل من 200 KB بالفعل، نتجنب إعادة الضغط لحماية الجودة.
- * 2. الحفاظ التام على أبعاد ونسب الصورة الأصلية واتجاهها الصحيح.
- * 3. دقة أبعاد مرتفعة (حتى 1800-2000 بكسل) تمنع تشويش الحروف الصغيرة والأختام الرسمية.
- * 4. حد أدنى صارم للجودة (Quality Floor >= 58%) لعدم الإضرار بوضوح المستند.
+ * ضغط ذكي وعالي الجودة للصور الفردية (Zero Data Loss):
+ * 1. المعيار الموحد الجديد لمنصة النيابة العامة: أقل من 500 KB حصرياً.
+ * 2. إذا كان حجم الصورة الأصلي أقل من 485 KB بالفعل، نتجنب إعادة الضغط لحماية الجودة 100%.
+ * 3. الحفاظ التام على الألوان الأصلية الحيوية والأختام الحمراء والزرقاء (يُحظر التحويل للأبيض والأسود).
+ * 4. تصغير هندسي ذكي يناسب صفحة A4 (حتى 2000 بكسل) وترشيح متدرج فائق لمنع تشويش الحروف والأرقام والتواريخ.
+ * 5. حد أدنى صارم للجودة (Quality Floor >= 65%) لعدم الإضرار بوضوح المستند أبداً.
  */
 export async function compressImageClient(
   file: File,
-  targetMaxBytes = 195 * 1024, // 195 KB لضمان أن تكون أقل من 200 KB
+  targetMaxBytes = 485 * 1024, // 485 KB لضمان أن تكون أقل من 500 KB تماماً
   onProgress?: (progress: CompressionProgress) => void
 ): Promise<CompressionResult> {
   const originalSize = file.size;
@@ -114,7 +115,7 @@ export async function compressImageClient(
   // قاعدة أساسية: إذا كانت الصورة بالفعل أقل من الحجم المستهدف، لا نعيد ضغطها دون داعٍ
   if (originalSize <= targetMaxBytes) {
     onProgress?.({
-      stage: 'الصورة مطابقة للاشتراطات بالفعل (< 200 KB)',
+      stage: 'الصورة مطابقة للاشتراطات بالفعل (< 500 KB)',
       percent: 100,
       originalSize,
       currentSize: originalSize,
@@ -149,8 +150,8 @@ export async function compressImageClient(
       const img = new Image();
       img.onerror = () => reject(new Error('فشل فك تشفير الصورة'));
       img.onload = async () => {
-        // نبدأ بدقة أبعاد عالية (1800 بكسل) تتيح قراءة أدق البنود القانونية
-        let maxDimension = Math.min(Math.max(img.width, img.height), 1800);
+        // نبدأ بدقة أبعاد A4 فائقة النقاء (2000 بكسل) تتيح قراءة أدق الأسماء والأرقام والتواريخ
+        let maxDimension = Math.min(Math.max(img.width, img.height), 2000);
         let width = img.width;
         let height = img.height;
 
@@ -168,18 +169,18 @@ export async function compressImageClient(
         }
 
         onProgress?.({
-          stage: 'ترشيح متدرج فائق النقاء (Stepped Resampling)',
+          stage: 'تحجيم A4 وترشيح متدرج فائق النقاء (Stepped Resampling)',
           percent: 50,
           originalSize,
           currentSize: Math.round(originalSize * 0.6),
           targetMax: targetMaxBytes,
-          detail: `الأبعاد: ${width}×${height} بكسل • دقة واضحة لأختام النسر والتوقيعات`,
+          detail: `الأبعاد: ${width}×${height} بكسل • ألوان كاملة 24-bit لحماية الأختام والتوقيعات`,
         });
 
         let canvas = highQualityResizeCanvas(img, width, height);
 
-        // جودة ابتدائية نقية 78% تمنع تشوه الحروف
-        let quality = 0.78;
+        // جودة ابتدائية نقية 85% تضمن حدة تامة للحروف والأرقام دون أي بهتان
+        let quality = 0.85;
         let bestBlob: Blob | null = await new Promise<Blob | null>((res) =>
           canvas.toBlob((b) => res(b), 'image/jpeg', quality)
         );
@@ -193,20 +194,19 @@ export async function compressImageClient(
           detail: bestBlob ? `الحجم الحالي: ${(bestBlob.size / 1024).toFixed(1)} KB` : 'قياس حجم الملف',
         });
 
-        // حلقة ضبط ذكية تدريجية تحافظ على وضوح المستند:
-        // نضبط الجودة أولاً دون تخفيض الأبعاد بشكل مبالغ فيه
+        // حلقة ضبط ذكية تدريجية تحافظ على وضوح المستند بدون أي تبكسل:
         let attempts = 0;
-        const minQualityFloor = 0.58; // لا ننزل عن 58% لمنع التبكسل والتشويش
-        const minDimensionFloor = 1200; // لا ننزل عن 1200 بكسل لقراءة النصوص الصغيرة
+        const minQualityFloor = 0.65; // حد أدنى آمن 65% لمنع البهتان أو التبكسل تماماً
+        const minDimensionFloor = 1350; // لا ننزل عن 1350 بكسل لضمان حدة الأسماء والأرقام والتواريخ
 
-        while (bestBlob && bestBlob.size > targetMaxBytes && attempts < 5) {
+        while (bestBlob && bestBlob.size > targetMaxBytes && attempts < 6) {
           attempts++;
 
-          if (quality > minQualityFloor + 0.05) {
+          if (quality > minQualityFloor + 0.04) {
             // تخفيض طفيف متدرج للجودة مع الحفاظ على الأبعاد العالية
-            quality = Math.max(minQualityFloor, quality - 0.06);
+            quality = Math.max(minQualityFloor, quality - 0.05);
           } else if (maxDimension > minDimensionFloor) {
-            // تقليص تدريجي هادئ للأبعاد بنسبة 10% فقط عند الضرورة
+            // تقليص هندسي تدريجي هادئ للأبعاد بنسبة 10% فقط عند الضرورة
             maxDimension = Math.max(minDimensionFloor, Math.round(maxDimension * 0.90));
             if (img.width > img.height) {
               width = maxDimension;
@@ -216,9 +216,9 @@ export async function compressImageClient(
               width = Math.round(maxDimension * ratio);
             }
             canvas = highQualityResizeCanvas(img, width, height);
-            quality = 0.68; // إعادة رفع الجودة قليلاً عند تصغير الأبعاد
+            quality = 0.74; // الحفاظ على جودة عالية عند تصغير الأبعاد
           } else {
-            // وصلنا للحد الأدنى المقبول للجودة - نتوقف لحماية وضوح المستند
+            // وصلنا للحد الأدنى الآمن للجودة - نتوقف فوراً لحماية مقروئية المستند
             break;
           }
 
@@ -274,11 +274,11 @@ export async function compressImageClient(
 }
 
 /**
- * ضغط مجموعة من الصور في الأمر الواحد دفعة واحدة
+ * ضغط مجموعة من الصور في الأمر الواحد دفعة واحدة (< 500 KB لكل صورة)
  */
 export async function compressMultipleImagesClient(
   files: File[],
-  targetMaxBytes = 195 * 1024,
+  targetMaxBytes = 485 * 1024,
   onProgress?: (progress: CompressionProgress) => void
 ): Promise<CompressionResult[]> {
   const totalOriginalSize = files.reduce((acc, f) => acc + f.size, 0);
@@ -340,7 +340,7 @@ export async function compressMultipleImagesClient(
  */
 export async function mergeImagesToPdfClient(
   files: File[],
-  strictMaxThreshold = 480 * 1024,
+  strictMaxThreshold = 485 * 1024,
   onProgress?: (progress: CompressionProgress) => void
 ): Promise<CompressionResult> {
   const totalOriginalSize = files.reduce((acc, f) => acc + f.size, 0);
@@ -446,22 +446,22 @@ export async function mergeImagesToPdfClient(
     return new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
   };
 
-  // ميزانية ذكية للأبعاد والجودة بحسب عدد الصفحات لضمان أعلى وضوح تحت 500 KB:
-  let currentMaxDim = 1600; // دقة ممتازة (150-180 DPI) تمنع تشويش الحروف
-  let currentQuality = 0.76;
+  // ميزانية ذكية لأبعاد A4 والجودة بحسب عدد الصفحات لضمان أعلى وضوح تحت 500 KB:
+  let currentMaxDim = 1850;
+  let currentQuality = 0.80;
 
   if (pageCount === 1) {
+    currentMaxDim = 2000;
+    currentQuality = 0.84;
+  } else if (pageCount === 2) {
     currentMaxDim = 1750;
     currentQuality = 0.78;
-  } else if (pageCount === 2) {
-    currentMaxDim = 1550;
-    currentQuality = 0.74;
   } else if (pageCount <= 5) {
-    currentMaxDim = Math.max(1300, 1500 - pageCount * 40);
-    currentQuality = Math.max(0.66, 0.74 - pageCount * 0.02);
+    currentMaxDim = Math.max(1400, 1600 - pageCount * 40);
+    currentQuality = Math.max(0.68, 0.78 - pageCount * 0.02);
   } else {
-    currentMaxDim = Math.max(1150, 1350 - pageCount * 25);
-    currentQuality = Math.max(0.60, 0.68 - pageCount * 0.01);
+    currentMaxDim = Math.max(1200, 1400 - pageCount * 25);
+    currentQuality = Math.max(0.64, 0.72 - pageCount * 0.01);
   }
 
   let finalBlob = await generatePdfWithParams(currentMaxDim, currentQuality, true);
@@ -477,20 +477,20 @@ export async function mergeImagesToPdfClient(
     detail: `الحجم الحالي: ${(finalBlob.size / 1024).toFixed(1)} KB`,
   });
 
-  // حلقة ضبط تدريجية هادئة مع احترام الحد الأدنى للجودة (Floor)
+  // حلقة ضبط تدريجية هادئة مع احترام الحد الأدنى للجودة (Quality Floor >= 62%)
   let attempts = 0;
-  const qualityFloor = 0.58;
-  const dimFloor = 1100;
+  const qualityFloor = 0.62;
+  const dimFloor = 1200;
 
-  while (finalBlob.size > strictMaxThreshold && attempts < 4) {
+  while (finalBlob.size > strictMaxThreshold && attempts < 5) {
     attempts++;
     if (currentQuality > qualityFloor + 0.04) {
-      currentQuality = Math.max(qualityFloor, currentQuality - 0.06);
+      currentQuality = Math.max(qualityFloor, currentQuality - 0.05);
     } else if (currentMaxDim > dimFloor) {
       currentMaxDim = Math.max(dimFloor, Math.round(currentMaxDim * 0.90));
-      currentQuality = 0.65;
+      currentQuality = 0.70;
     } else {
-      break; // نتوقف عند الحد الأدنى لعدم إفساد جودة المستند
+      break; // نتوقف عند الحد الأدنى الآمن لعدم إفساد جودة المستند أو بهتان الحروف
     }
 
     finalBlob = await generatePdfWithParams(currentMaxDim, currentQuality, false);
@@ -546,7 +546,7 @@ export async function mergeImagesToPdfClient(
  */
 export async function compressPdfClient(
   file: File,
-  strictMaxThreshold = 490 * 1024, // 490 KB لاستهداف أقل من 500 KB
+  strictMaxThreshold = 485 * 1024, // 485 KB لضمان أن يكون أقل من 500 KB حصرياً
   onProgress?: (progress: CompressionProgress) => void
 ): Promise<CompressionResult> {
   const originalSize = file.size;
@@ -613,10 +613,8 @@ export async function compressPdfClient(
       } catch (_) {}
     }
 
-    // حساب دقة DPI حادة ومناسبة للمستندات القضائية:
-    // نعتمد 150-180 DPI للصفحات العادية و 135-150 DPI للمستندات الكبيرة
-    // (دقة 72-96 القديمة كانت سبب تشويش المستند وضياع معالم الأختام)
-    let targetDpi = numPages <= 2 ? 180 : (numPages <= 5 ? 150 : (numPages <= 10 ? 135 : 120));
+    // حساب دقة DPI حادة ومناسبة للمستندات القضائية (130-190 DPI):
+    let targetDpi = numPages <= 2 ? 190 : (numPages <= 5 ? 165 : (numPages <= 10 ? 145 : 130));
     let scaleFactor = targetDpi / 72;
 
     onProgress?.({
@@ -702,8 +700,8 @@ export async function compressPdfClient(
       return new Blob([finalPdfBytes as unknown as BlobPart], { type: 'application/pdf' });
     };
 
-    // جودة ابتدائية نقية تمنع تشوه النصوص (76% للمستندات القصيرة، 70% للمتوسطة)
-    let quality = numPages <= 2 ? 0.76 : (numPages <= 5 ? 0.71 : 0.66);
+    // جودة ابتدائية نقية تمنع تشوه النصوص والأسماء والأختام
+    let quality = numPages <= 2 ? 0.82 : (numPages <= 5 ? 0.76 : 0.70);
     let finalBlob = await buildCompressedPdf(scaleFactor, quality, true);
 
     onProgress?.({
@@ -717,21 +715,20 @@ export async function compressPdfClient(
       detail: `الحجم الحالي: ${(finalBlob.size / 1024).toFixed(1)} KB`,
     });
 
-    // حلقة ضبط تدريجية هادئة مع حد أدنى صارم للجودة:
-    // لا ننزل عن 120 DPI ولا عن 58% جودة لحماية وضوح المستند القضائي
+    // حلقة ضبط تدريجية هادئة مع حد أدنى صارم للجودة (Quality Floor >= 64%, DPI >= 125):
     let attempts = 0;
-    const dpiFloor = 120;
-    const qualityFloor = 0.58;
+    const dpiFloor = 125;
+    const qualityFloor = 0.64;
 
-    while (finalBlob.size > strictMaxThreshold && attempts < 4) {
+    while (finalBlob.size > strictMaxThreshold && attempts < 5) {
       attempts++;
       const currentDpi = scaleFactor * 72;
 
       if (quality > qualityFloor + 0.04) {
-        quality = Math.max(qualityFloor, quality - 0.06);
+        quality = Math.max(qualityFloor, quality - 0.05);
       } else if (currentDpi > dpiFloor) {
         scaleFactor = Math.max(dpiFloor / 72, scaleFactor * 0.90);
-        quality = 0.64; // إعادة رفع الجودة عند خفض الأبعاد
+        quality = 0.70; // الحفاظ على جودة عالية عند خفض الأبعاد
       } else {
         // وصلنا للحد الأدنى المسموح لسلامة الخطوط والأختام - نتوقف لحماية المستند
         break;

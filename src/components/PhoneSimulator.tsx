@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   FileImage,
   FileText,
@@ -22,6 +22,7 @@ import {
   ScrollText,
   Share2,
   Check,
+  CheckCircle2,
   Send,
   Image as ImageIcon,
   Camera,
@@ -46,12 +47,14 @@ import {
   CompressionProgress,
 } from '../utils/compression';
 import confetti from 'canvas-confetti';
+import { DocumentScannerView } from './DocumentScannerView';
 
 type ScreenType =
   | 'home'
   | 'compress_image'
   | 'compress_pdf'
   | 'merge_images'
+  | 'document_scanner'
   | 'legal_portals';
 
 interface LegalPortal {
@@ -68,7 +71,7 @@ export const PhoneSimulator: React.FC = () => {
   // يفتح التطبيق مباشرة على الشاشة الرئيسية فوراً بدون أي تسجيل دخول
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('home');
 
-  // حالة ضغط الصور (صورة أو أكثر دفعة واحدة < 200 KB)
+  // حالة ضغط الصور (صورة أو أكثر < 500 KB)
   const [selectedImagesForCompress, setSelectedImagesForCompress] = useState<File[]>([]);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -91,38 +94,81 @@ export const PhoneSimulator: React.FC = () => {
   const [currentProgress, setCurrentProgress] = useState<CompressionProgress | null>(null);
   const [showProgressWidget, setShowProgressWidget] = useState<boolean>(false);
 
-  // رسالة الـ 3 ثوانٍ الذكية العائمة مع زر [ فتح ]
+  // مربع حوار تأكيد الحفظ المركزي (3 ثوانٍ تلقائياً مع إغلاق يدوي × وزر فتح الملف)
   const [smartToast, setSmartToast] = useState<{
     show: boolean;
     message: string;
+    sizeDetail?: string;
+    fileType?: 'image' | 'document';
     fileUrl?: string;
     fileName?: string;
   }>({ show: false, message: '' });
-  const smartToastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const smartToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dialogTokenRef = useRef<number>(0);
 
-  const showSmartToast = (message: string, fileUrl?: string, fileName?: string) => {
+  const dismissSaveConfirmationDialog = () => {
+    dialogTokenRef.current += 1;
     if (smartToastTimerRef.current) {
       clearTimeout(smartToastTimerRef.current);
+      smartToastTimerRef.current = null;
     }
-    setSmartToast({ show: true, message, fileUrl, fileName });
+    setSmartToast({ show: false, message: '' });
+  };
+
+  useEffect(() => {
+    return () => {
+      if (smartToastTimerRef.current) {
+        clearTimeout(smartToastTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showSmartToast = (
+    sizeDetail: string,
+    fileUrl?: string,
+    fileName?: string,
+    fileType: 'image' | 'document' = 'document'
+  ) => {
+    if (!fileUrl) return;
+    if (smartToastTimerRef.current) {
+      clearTimeout(smartToastTimerRef.current);
+      smartToastTimerRef.current = null;
+    }
+    const token = ++dialogTokenRef.current;
+    const locationMessage =
+      fileType === 'image'
+        ? 'تم الحفظ في الاستوديو بنجاح'
+        : 'تم الحفظ في مجلد التنزيلات (Downloads) بنجاح';
+
+    setSmartToast({
+      show: true,
+      message: locationMessage,
+      sizeDetail,
+      fileType,
+      fileUrl,
+      fileName,
+    });
+
     smartToastTimerRef.current = setTimeout(() => {
-      setSmartToast({ show: false, message: '' });
-    }, 3000); // تختفي تلقائياً خلال 3 ثوانٍ بالضبط
+      if (dialogTokenRef.current === token) {
+        setSmartToast({ show: false, message: '' });
+      }
+    }, 3000); // يختفي تلقائياً خلال 3 ثوانٍ إذا لم يتفاعل المستخدم
   };
 
   // إعدادات الحجم المستهدف القابلة للتعديل والمحفوظة محلياً
-  // الصور: القيمة الافتراضية 200KB • الـ PDF: القيمة الافتراضية 500KB
+  // المعيار الموحد الجديد للنيابة العامة: الصور 500KB • الـ PDF 500KB
   const [targetImageKB, setTargetImageKB] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('manzoma_target_image_kb');
+        const saved = localStorage.getItem('manzoma_target_image_kb_v2');
         if (saved) {
           const parsed = parseInt(saved, 10);
           if (!isNaN(parsed) && parsed > 0) return parsed;
         }
       } catch (_) {}
     }
-    return 200; // القيمة الافتراضية 200KB
+    return 500; // القيمة الافتراضية الموحدة 500KB
   });
 
   const [targetPdfKB, setTargetPdfKB] = useState<number>(() => {
@@ -147,7 +193,7 @@ export const PhoneSimulator: React.FC = () => {
   }>({
     isOpen: false,
     type: 'image',
-    inputValue: '200',
+    inputValue: '500',
   });
 
   const openTargetEditor = (type: 'image' | 'pdf', e?: React.MouseEvent) => {
@@ -166,7 +212,7 @@ export const PhoneSimulator: React.FC = () => {
     if (isNaN(parsed) || parsed <= 0) {
       setTargetEditModal((prev) => ({
         ...prev,
-        error: 'يرجى إدخال رقم صحيح موجب أكبر من صفر (مثال: 150 أو 300)',
+        error: 'يرجى إدخال رقم صحيح موجب أكبر من صفر (مثال: 350 أو 500)',
       }));
       return;
     }
@@ -174,7 +220,7 @@ export const PhoneSimulator: React.FC = () => {
     if (targetEditModal.type === 'image') {
       setTargetImageKB(parsed);
       try {
-        localStorage.setItem('manzoma_target_image_kb', parsed.toString());
+        localStorage.setItem('manzoma_target_image_kb_v2', parsed.toString());
       } catch (_) {}
       showFlutterToast(`✅ تم تعديل الحجم المستهدف للصور إلى ${parsed} KB`);
     } else {
@@ -190,11 +236,11 @@ export const PhoneSimulator: React.FC = () => {
 
   const handleResetTargetDefault = () => {
     if (targetEditModal.type === 'image') {
-      setTargetImageKB(200);
+      setTargetImageKB(500);
       try {
-        localStorage.removeItem('manzoma_target_image_kb');
+        localStorage.removeItem('manzoma_target_image_kb_v2');
       } catch (_) {}
-      showFlutterToast('✅ استعادة القيمة الافتراضية للصور (200 KB)');
+      showFlutterToast('✅ استعادة القيمة الافتراضية للصور (500 KB)');
     } else {
       setTargetPdfKB(500);
       try {
@@ -533,8 +579,8 @@ export const PhoneSimulator: React.FC = () => {
 
   const handleShareApp = async () => {
     const shareData = {
-      title: 'تطبيق تصغير حجم الصور للمنظومة القضائية',
-      text: 'زميلي العزيز المحامي ⚖️\nإليك تطبيق تصغير حجم الصور وملفات الـ PDF للمنظومة القضائية بحد أقصى 500 KB لتناسب اشتراطات النيابة ومصر الرقمية.\n• حفظ الصور مباشرة في المعرض (Gallery)\n• نافذة مشاركة سريعة لملفات الـ PDF\nتصميم وتنفيذ: مصطفى فرويز المحامي ⚖️',
+      title: 'تطبيق «ضغطة» لتصغير حجم الصور والـ PDF للمنظومة القضائية',
+      text: 'زميلي العزيز المحامي ⚖️\nإليك تطبيق «ضغطة» لتصغير حجم الصور وملفات الـ PDF للمنظومة القضائية بحد أقصى 500 KB لتناسب اشتراطات النيابة ومصر الرقمية.\n• حفظ الصور مباشرة في المعرض (Gallery)\n• حفظ وفتح ملفات الـ PDF في التنزيلات\nتصميم وتنفيذ: مصطفى فرويز المحامي\nAl-Hawai Tech',
       url: window.location.href,
     };
 
@@ -558,7 +604,7 @@ export const PhoneSimulator: React.FC = () => {
 
     setIsProcessingImage(true);
     const totalOriginalBytes = filesToCompress.reduce((acc, f) => acc + f.size, 0);
-    const targetImageBytes = Math.round(targetImageKB * 1024 * 0.96);
+    const targetImageBytes = Math.round(targetImageKB * 1024 * 0.97);
 
     if (isProgressIndicatorEnabled) {
       setShowProgressWidget(true);
@@ -570,7 +616,7 @@ export const PhoneSimulator: React.FC = () => {
         totalPages: filesToCompress.length,
         currentPage: 1,
         targetMax: targetImageBytes * filesToCompress.length,
-        detail: `استهداف أقل من ${targetImageKB} KB لكل صورة مع الحفاظ على الألوان`,
+        detail: `استهداف أقل من ${targetImageKB} KB لكل صورة مع الحفاظ التام على الألوان`,
       });
     }
 
@@ -597,12 +643,12 @@ export const PhoneSimulator: React.FC = () => {
 
       confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
 
-      if (results.length === 1) {
+      if (results.length === 1 && results[0]?.url && results[0].compressedSize > 0) {
         const kb = (results[0].compressedSize / 1024).toFixed(1);
-        showSmartToast(`(تم الحفظ - الحجم: ${kb} KB)`, results[0].url, results[0].name);
-      } else {
+        showSmartToast(`(الحجم: ${kb} KB)`, results[0].url, results[0].name, 'image');
+      } else if (results.length > 1 && results[0]?.url) {
         const totalKb = (results.reduce((acc, r) => acc + r.compressedSize, 0) / 1024).toFixed(1);
-        showSmartToast(`(تم حفظ ${results.length} صور - إجمالي: ${totalKb} KB)`, results[0].url, results[0].name);
+        showSmartToast(`(عدد الصور: ${results.length} • إجمالي: ${totalKb} KB)`, results[0].url, results[0].name, 'image');
       }
 
       // إبقاء المؤشر 3 ثوانٍ بعد الاكتمال لعرض الشفافية والنتيجة للمحامي
@@ -610,7 +656,7 @@ export const PhoneSimulator: React.FC = () => {
         setShowProgressWidget(false);
       }, 3500);
     } catch (err: any) {
-      showSmartToast(`❌ خطأ: ${err.message || 'فشل ضغط الصورة'}`);
+      showFlutterToast(`❌ خطأ: ${err.message || 'فشل ضغط الصورة'}`);
       setShowProgressWidget(false);
     } finally {
       setIsProcessingImage(false);
@@ -621,7 +667,7 @@ export const PhoneSimulator: React.FC = () => {
     if (!selectedPdf) return;
 
     setIsProcessingPdf(true);
-    const targetPdfBytes = Math.round(targetPdfKB * 1024 * 0.96);
+    const targetPdfBytes = Math.round(targetPdfKB * 1024 * 0.97);
 
     if (isProgressIndicatorEnabled) {
       setShowProgressWidget(true);
@@ -650,14 +696,16 @@ export const PhoneSimulator: React.FC = () => {
       triggerDownload(result.blob, result.name);
 
       confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
-      const kb = (result.compressedSize / 1024).toFixed(1);
-      showSmartToast(`(تم الحفظ - الحجم: ${kb} KB)`, result.url, result.name);
+      if (result?.url && result.compressedSize > 0) {
+        const kb = (result.compressedSize / 1024).toFixed(1);
+        showSmartToast(`(الحجم: ${kb} KB)`, result.url, result.name, 'document');
+      }
 
       setTimeout(() => {
         setShowProgressWidget(false);
       }, 3500);
     } catch (err: any) {
-      showSmartToast(`❌ خطأ: ${err.message || 'فشل ضغط ملف PDF'}`);
+      showFlutterToast(`❌ خطأ: ${err.message || 'فشل ضغط ملف PDF'}`);
       setShowProgressWidget(false);
     } finally {
       setIsProcessingPdf(false);
@@ -669,7 +717,7 @@ export const PhoneSimulator: React.FC = () => {
 
     setIsProcessingMerge(true);
     const totalBytes = selectedImages.reduce((acc, f) => acc + f.size, 0);
-    const targetPdfBytes = Math.round(targetPdfKB * 1024 * 0.96);
+    const targetPdfBytes = Math.round(targetPdfKB * 1024 * 0.97);
 
     if (isProgressIndicatorEnabled) {
       setShowProgressWidget(true);
@@ -700,14 +748,16 @@ export const PhoneSimulator: React.FC = () => {
       triggerDownload(result.blob, result.name);
 
       confetti({ particleCount: 45, spread: 70, origin: { y: 0.8 } });
-      const kb = (result.compressedSize / 1024).toFixed(1);
-      showSmartToast(`(تم الحفظ - الحجم: ${kb} KB)`, result.url, result.name);
+      if (result?.url && result.compressedSize > 0) {
+        const kb = (result.compressedSize / 1024).toFixed(1);
+        showSmartToast(`(الحجم: ${kb} KB)`, result.url, result.name, 'document');
+      }
 
       setTimeout(() => {
         setShowProgressWidget(false);
       }, 3500);
     } catch (err: any) {
-      showSmartToast(`❌ خطأ: ${err.message || 'فشل دمج الصور'}`);
+      showFlutterToast(`❌ خطأ: ${err.message || 'فشل دمج الصور'}`);
       setShowProgressWidget(false);
     } finally {
       setIsProcessingMerge(false);
@@ -737,48 +787,43 @@ export const PhoneSimulator: React.FC = () => {
         {/* شاشة الهاتف الداخلية */}
         <div className="relative flex-1 bg-slate-50 text-slate-900 rounded-[38px] overflow-hidden flex flex-col">
           
-          {/* شريط AppBar فلاتر: اسم التطبيق في العنوان الرئيسي وزر مشاركة التطبيق */}
-          <div className="bg-[#1e3a8a] text-white px-3 sm:px-4 py-3 flex items-center justify-between shadow-sm z-10">
+          {/* شريط التطبيق العلوي: اسم «ضغطة» باللون الكحلي الملكي والذهبي وزر المشاركة */}
+          <div className="bg-[#0F2557] text-white px-3.5 py-2.5 flex items-center justify-between border-b-2 border-[#D4AF37] shadow-sm z-10 shrink-0">
             {currentScreen !== 'home' ? (
               <button
                 onClick={() => setCurrentScreen('home')}
-                className="p-1 hover:bg-white/10 rounded-full text-white flex items-center gap-1 text-xs"
+                className="px-2 py-1 hover:bg-white/10 rounded-lg text-white flex items-center gap-1.5 text-xs font-bold transition-colors"
               >
-                <ArrowRight size={18} />
+                <ArrowRight size={17} />
                 <span>رجوع</span>
               </button>
             ) : (
-              <div className="flex items-center gap-1.5">
-                <Gavel size={17} className="text-amber-400 shrink-0" />
-                <span className="font-bold text-xs tracking-tight">
-                  تصغير حجم الصور للمنظومة
-                </span>
+              <div className="flex items-center gap-2">
+                <Scale size={18} className="text-[#FDE047] shrink-0" />
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-black text-base tracking-tight text-white">
+                    ضغطة
+                  </span>
+                  <span className="text-[10px] font-semibold text-[#FDE047]/90">
+                    &lt; 500 KB
+                  </span>
+                </div>
               </div>
             )}
 
-            <div className="flex items-center gap-1.5">
-              {/* زر مشاركة التطبيق مع الزملاء المحامين */}
-              <button
-                onClick={handleShareApp}
-                className="px-2 py-1 bg-amber-400 hover:bg-amber-300 text-slate-900 rounded-full font-bold text-[10px] flex items-center gap-1 shadow-xs transition-all active:scale-95"
-                title="مشاركة التطبيق"
-              >
-                <Share2 size={11} />
-                <span>مشاركة</span>
-              </button>
-
-              <div className="text-[10px] bg-teal-500/20 text-teal-200 border border-teal-400/30 px-2 py-0.5 rounded-full font-semibold">
-                متاح فوراً
-              </div>
-            </div>
+            <button
+              onClick={handleShareApp}
+              className="px-2.5 py-1.5 bg-[#FDE047] hover:bg-[#FACC15] text-[#0F2557] rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition-all active:scale-95 shrink-0"
+              title="مشاركة التطبيق"
+            >
+              <Share2 size={12} />
+              <span>مشاركة</span>
+            </button>
           </div>
 
-          {/* شريط التحكم السريع بمؤشر الشفافية (اختياري وصغير) */}
-          <div className="bg-[#172554] text-slate-200 px-3 py-1 flex items-center justify-between text-[10px] border-b border-blue-900/60 z-10 shrink-0">
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-slate-300">منظومة النيابة ومصر الرقمية</span>
-            </div>
+          {/* شريط التحكم السريع بمؤشر الشفافية (صغير واختياري) */}
+          <div className="bg-[#0B1D48] text-slate-200 px-3 py-1 flex items-center justify-between text-[10px] border-b border-blue-950 z-10 shrink-0">
+            <span className="text-slate-300">منظومة النيابة ومصر الرقمية</span>
             <button
               onClick={() => {
                 const nextState = !isProgressIndicatorEnabled;
@@ -805,13 +850,13 @@ export const PhoneSimulator: React.FC = () => {
               }}
               className={`px-2 py-0.5 rounded-md font-bold flex items-center gap-1 transition-all ${
                 isProgressIndicatorEnabled
-                  ? 'bg-teal-500/25 text-teal-300 border border-teal-400/30'
+                  ? 'bg-teal-500/20 text-teal-200 border border-teal-400/30'
                   : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200'
               }`}
               title="تفعيل أو إلغاء مؤشر التقدم الجانبي الشفاف"
             >
-              <Activity size={10} className={isProgressIndicatorEnabled ? 'text-teal-400 animate-pulse' : 'text-slate-400'} />
-              <span>المؤشر الجانبي: {isProgressIndicatorEnabled ? 'مفعّل' : 'معطّل'}</span>
+              <Activity size={10} className={isProgressIndicatorEnabled ? 'text-teal-300' : 'text-slate-400'} />
+              <span>المؤشر: {isProgressIndicatorEnabled ? 'مفعّل' : 'معطّل'}</span>
             </button>
           </div>
 
@@ -952,10 +997,10 @@ export const PhoneSimulator: React.FC = () => {
                     percent: 100,
                     originalSize: 1850 * 1024,
                     currentSize: 395 * 1024,
-                    targetMax: 470 * 1024,
+                    targetMax: 485 * 1024,
                     totalPages: 3,
                     currentPage: 3,
-                    detail: 'يعرض الحجم اللحظي ونسبة الإنجاز بدقة 72-96 DPI',
+                    detail: 'يعرض الحجم اللحظي ونسبة الإنجاز بدقة A4 فائقة الوضوح',
                   });
                 }
               }}
@@ -968,187 +1013,230 @@ export const PhoneSimulator: React.FC = () => {
           )}
 
           {/* محتوى الشاشات */}
-          <div className="flex-1 overflow-y-auto p-4 text-right">
+          <div className="flex-1 overflow-y-auto px-3 py-2.5 text-right">
             
             {/* الشاشة الرئيسية المباشرة فور فتح التطبيق */}
             {currentScreen === 'home' && (
-              <div className="space-y-4 animate-fade-in pb-2">
-                {/* بطاقة الترحيب العلوية */}
-                <div className="bg-gradient-to-br from-[#1e3a8a] via-[#1e40af] to-[#0f172a] text-white rounded-2xl p-3.5 shadow-md shadow-blue-900/30">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="inline-flex items-center gap-1 bg-teal-500/20 text-teal-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-teal-500/30">
-                      <ShieldCheck size={11} />
-                      <span>بدون تسجيل دخول • حفظ مباشر بالتنزيلات</span>
-                    </span>
-                    <Scale size={15} className="text-amber-300" />
+              <div className="space-y-2 animate-fade-in">
+                {/* بطاقة الترحيب العلوية بالشعار المرفق وجملة الترحيب مع الميزان والوصف المختصر */}
+                <div className="bg-gradient-to-br from-[#0B1D48] via-[#132C68] to-[#1D3E8A] text-white rounded-2xl p-2.5 border border-[#D4AF37]/45 shadow-sm flex items-center gap-2.5">
+                  <img
+                    src="/assets/brand/ic_launcher_foreground.png"
+                    alt="شعار تطبيق ضغطة"
+                    referrerPolicy="no-referrer"
+                    className="w-[58px] h-[58px] rounded-xl object-contain bg-[#060E24] border border-[#D4AF37]/50 shrink-0 shadow-xs"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-[12.5px] font-bold text-white leading-tight truncate">
+                        أهلاً بك زميلي المحامي
+                      </h3>
+                      <Scale size={14} className="text-[#FDE047] shrink-0" />
+                    </div>
+                    <p className="text-[9.8px] text-slate-200 leading-[1.35] mt-1 line-clamp-3">
+                      اضغط مستنداتك وصورك بضغطة واحدة، بدون إنترنت، وبجودة عالية واجعلها جاهزة لتقديم الطلبات على منظومه النيابة والمحاكم.
+                    </p>
                   </div>
-                  <h3 className="text-xs sm:text-sm font-bold mb-0.5">
-                    أهلاً بك زميلي العزيز المحامي ⚖️
-                  </h3>
-                  <p className="text-[11px] text-blue-100 leading-normal">
-                    ضغط مباشر لملفات النيابة ومحكمة الأسرة ومصر الرقمية بدون إعلانات وبأعلى دقة.
-                  </p>
                 </div>
 
-                {/* ==================== أ) الأزرار الثلاثة في منتصف الشاشة ==================== */}
-                <div className="space-y-2.5">
-                  <div className="text-xs font-bold text-slate-700 px-1 flex items-center justify-between">
-                    <span>أدوات ضغط وتحويل المستندات:</span>
-                    <span className="text-[10px] text-blue-700 font-semibold">تنزيل مباشر في Downloads</span>
+                {/* ==================== الخدمات الخمس رأسياً بالترتيب والألوان والترقيم (1 إلى 5) ==================== */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-xs font-bold text-[#0F2557] px-0.5">
+                    اضغط على الخدمة التي تريدها
                   </div>
 
-                  {/* 1. تصغير حجم الصور (صورة أو أكثر < targetImageKB KB) */}
-                  <button
+                  {/* 1. الأزرق: تصغير حجم الصور */}
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setCurrentScreen('compress_image')}
-                    className="w-full bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-2xl p-3 flex items-start gap-3 transition-all text-right shadow-xs active:scale-[0.99] group"
+                    onKeyDown={(e) => e.key === 'Enter' && setCurrentScreen('compress_image')}
+                    className="w-full min-h-[50px] bg-[#1D4ED8] hover:bg-[#1E40AF] border border-[#3B82F6] text-white rounded-2xl px-2.5 py-1 flex items-center gap-2 transition-all text-right shadow-xs active:scale-[0.985] cursor-pointer"
                   >
-                    <div className="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center text-blue-700 shrink-0 group-hover:scale-105 transition-transform">
-                      <FileImage size={22} />
+                    <div className="w-7 h-7 rounded-full bg-white text-[#1D4ED8] font-black text-xs tabular-nums flex items-center justify-center shrink-0 shadow-2xs">
+                      1
+                    </div>
+                    <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center text-white shrink-0">
+                      <FileImage size={17} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="font-bold text-xs text-slate-800">تصغير حجم الصور (صورة أو أكثر)</span>
-                        <span
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="font-bold text-[11.5px] text-white truncate">تصغير حجم الصور</span>
+                        <button
+                          type="button"
                           onClick={(e) => openTargetEditor('image', e)}
-                          className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-1.5 py-0.5 rounded cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1 border border-blue-300/60 shadow-2xs"
-                          title="اضغط على الرقم لتعديل الحجم المستهدف للصور"
+                          className="text-[9px] bg-white/15 hover:bg-white/25 text-white font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 shrink-0 transition-colors"
+                          title="تعديل الحجم المستهدف للصور"
                         >
                           <span>&lt; {targetImageKB} KB</span>
-                          <Pencil size={8} className="opacity-70" />
-                        </span>
+                          <Pencil size={8} />
+                        </button>
                       </div>
-                      <p className="text-[10.5px] text-slate-500 leading-tight">
-                        ضغط صور التوكيلات والبطاقات (واحدة أو أكثر دفعة واحدة) لتصبح أقل من {targetImageKB} KB وحفظها فوراً بالمعرض.
+                      <p className="text-[10px] text-blue-100 leading-tight mt-0.5 truncate">
+                        ضغط صورة أو أكثر بألوان كاملة وحفظها بالمعرض
                       </p>
                     </div>
-                  </button>
+                    <ArrowRight size={13} className="rotate-180 text-white/80 shrink-0" />
+                  </div>
 
-                  {/* 2. تصغير حجم ملف PDF (بحد أقصى targetPdfKB KB) */}
-                  <button
+                  {/* 2. البرتقالي: تصغير حجم ملفات PDF */}
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setCurrentScreen('compress_pdf')}
-                    className="w-full bg-white hover:bg-orange-50/60 border border-slate-200 hover:border-orange-300 rounded-2xl p-3 flex items-start gap-3 transition-all text-right shadow-xs active:scale-[0.99] group"
+                    onKeyDown={(e) => e.key === 'Enter' && setCurrentScreen('compress_pdf')}
+                    className="w-full min-h-[50px] bg-[#D94E0B] hover:bg-[#C2410C] border border-[#F97316] text-white rounded-2xl px-2.5 py-1 flex items-center gap-2 transition-all text-right shadow-xs active:scale-[0.985] cursor-pointer"
                   >
-                    <div className="w-11 h-11 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 shrink-0 group-hover:scale-105 transition-transform">
-                      <FileText size={22} />
+                    <div className="w-7 h-7 rounded-full bg-white text-[#C2410C] font-black text-xs tabular-nums flex items-center justify-center shrink-0 shadow-2xs">
+                      2
+                    </div>
+                    <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center text-white shrink-0">
+                      <FileText size={17} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="font-bold text-xs text-slate-800">تصغير حجم ملف PDF</span>
-                        <span
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="font-bold text-[11.5px] text-white truncate">تصغير حجم ملفات PDF</span>
+                        <button
+                          type="button"
                           onClick={(e) => openTargetEditor('pdf', e)}
-                          className="text-[10px] bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold px-1.5 py-0.5 rounded cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1 border border-orange-300/60 shadow-2xs"
-                          title="اضغط على الرقم لتعديل الحجم المستهدف لملفات PDF"
+                          className="text-[9px] bg-white/15 hover:bg-white/25 text-white font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 shrink-0 transition-colors"
+                          title="تعديل الحجم المستهدف لملفات PDF"
                         >
                           <span>&lt; {targetPdfKB} KB</span>
-                          <Pencil size={8} className="opacity-70" />
-                        </span>
+                          <Pencil size={8} />
+                        </button>
                       </div>
-                      <p className="text-[10.5px] text-slate-500 leading-tight">
-                        تقليص عرائض الدعاوى مع الحفاظ التام على الألوان والأختام وحدّة الخطوط (أقل من {targetPdfKB} KB).
+                      <p className="text-[10px] text-orange-100 leading-tight mt-0.5 truncate">
+                        تقليص العرائض والمذكرات مع الحفاظ على الأختام
                       </p>
                     </div>
-                  </button>
+                    <ArrowRight size={13} className="rotate-180 text-white/80 shrink-0" />
+                  </div>
 
-                  {/* 3. دمج الصور في ملف pdf واحد (< targetPdfKB KB) */}
-                  <button
+                  {/* 3. الأخضر: دمج الصور في ملف PDF واحد */}
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setCurrentScreen('merge_images')}
-                    className="w-full bg-white hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 rounded-2xl p-3 flex items-start gap-3 transition-all text-right shadow-xs active:scale-[0.99] group"
+                    onKeyDown={(e) => e.key === 'Enter' && setCurrentScreen('merge_images')}
+                    className="w-full min-h-[50px] bg-[#047857] hover:bg-[#065F46] border border-[#10B981] text-white rounded-2xl px-2.5 py-1 flex items-center gap-2 transition-all text-right shadow-xs active:scale-[0.985] cursor-pointer"
                   >
-                    <div className="w-11 h-11 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 group-hover:scale-105 transition-transform">
-                      <Files size={22} />
+                    <div className="w-7 h-7 rounded-full bg-white text-[#047857] font-black text-xs tabular-nums flex items-center justify-center shrink-0 shadow-2xs">
+                      3
+                    </div>
+                    <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center text-white shrink-0">
+                      <Files size={17} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="font-bold text-xs text-slate-800">دمج الصور في ملف pdf واحد</span>
-                        <span
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="font-bold text-[11.5px] text-white truncate">دمج الصور في ملف PDF واحد</span>
+                        <button
+                          type="button"
                           onClick={(e) => openTargetEditor('pdf', e)}
-                          className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-700 font-bold px-1.5 py-0.5 rounded cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1 border border-emerald-300/60 shadow-2xs"
-                          title="اضغط على الرقم لتعديل الحجم المستهدف لملفات PDF"
+                          className="text-[9px] bg-white/15 hover:bg-white/25 text-white font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 shrink-0 transition-colors"
+                          title="تعديل الحجم المستهدف لملفات PDF"
                         >
                           <span>&lt; {targetPdfKB} KB</span>
-                          <Pencil size={8} className="opacity-70" />
-                        </span>
+                          <Pencil size={8} />
+                        </button>
                       </div>
-                      <p className="text-[10.5px] text-slate-500 leading-tight">
-                        دمج أوراق الحافظة والمحاضر بالألوان الأصلية ودقة A4 حادة بدون تشويش أو تبكسل (&lt; {targetPdfKB} KB).
+                      <p className="text-[10px] text-emerald-100 leading-tight mt-0.5 truncate">
+                        دمج أوراق المحاضر والحوافظ بدقة A4 حادة
                       </p>
                     </div>
-                  </button>
+                    <ArrowRight size={13} className="rotate-180 text-white/80 shrink-0" />
+                  </div>
 
-                  {/* 4. مسح ضوئي بالكاميرا المباشرة (Scanner) */}
-                  <button
-                    onClick={() => startCameraScanner('image')}
-                    className="w-full bg-gradient-to-r from-teal-50 to-emerald-50 hover:from-teal-100/70 hover:to-emerald-100/70 border border-teal-200/80 hover:border-teal-300 rounded-2xl p-3 flex items-start gap-3 transition-all text-right shadow-xs active:scale-[0.99] group"
+                  {/* 4. التركواز: تصوير المستندات وتحسينها وضغطها */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setCurrentScreen('document_scanner')}
+                    onKeyDown={(e) => e.key === 'Enter' && setCurrentScreen('document_scanner')}
+                    className="w-full min-h-[50px] bg-[#0F766E] hover:bg-[#115E59] border border-[#14B8A6] text-white rounded-2xl px-2.5 py-1 flex items-center gap-2 transition-all text-right shadow-xs active:scale-[0.985] cursor-pointer"
                   >
-                    <div className="w-11 h-11 rounded-xl bg-teal-600 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform shadow-sm">
-                      <Camera size={22} />
+                    <div className="w-7 h-7 rounded-full bg-white text-[#0F766E] font-black text-xs tabular-nums flex items-center justify-center shrink-0 shadow-2xs">
+                      4
+                    </div>
+                    <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center text-white shrink-0">
+                      <Scan size={17} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="font-bold text-xs text-teal-950 flex items-center gap-1.5">
-                          <span>مسح ضوئي للمستند بالكاميرا</span>
-                          <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-                        </span>
-                        <span className="text-[10px] bg-teal-200/80 text-teal-900 font-bold px-1.5 py-0.5 rounded">
-                          كاميرا حية 📸
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="font-bold text-[11.5px] text-white truncate">تصوير المستندات وتحسينها وضغطها</span>
+                        <span className="text-[9px] bg-white/15 text-white font-bold px-1.5 py-0.5 rounded-md shrink-0">
+                          &lt; 500 KB
                         </span>
                       </div>
-                      <p className="text-[10.5px] text-teal-700 leading-tight">
-                        التقاط صور التوكيلات والمذكرات مباشرة بكاميرا الهاتف وتمريرها فوراً للضغط لضمان أعلى جودة بدون فقد للتفاصيل.
+                      <p className="text-[10px] text-teal-100 leading-tight mt-0.5 truncate">
+                        تصوير تلقائي أو يدوي وقص وتحسين ألوان وحفظ صور و PDF
                       </p>
                     </div>
-                  </button>
-                </div>
+                    <ArrowRight size={13} className="rotate-180 text-white/80 shrink-0" />
+                  </div>
 
-                {/* ==================== ب) المربع الأزرق المميز في أسفل الشاشة ==================== */}
-                <div className="pt-2">
-                  <div className="rounded-2xl shadow-lg shadow-blue-900/30 overflow-hidden border-2 border-blue-400/80">
-                    <button
-                      onClick={() => setCurrentScreen('legal_portals')}
-                      className="w-full bg-gradient-to-r from-[#1e3a8a] via-[#1d4ed8] to-[#2563eb] hover:from-[#1e40af] hover:to-[#1d4ed8] text-white p-4 flex items-center gap-3.5 text-right transition-all group"
-                    >
-                      <div className="w-12 h-12 rounded-xl bg-white/20 border border-white/30 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform shadow-inner">
-                        <Globe size={26} className="text-amber-300" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-xs sm:text-sm text-white leading-tight">
-                          تسجيل الدخول لموقع النيابة ومحكمة الأسرة ومصر الرقمية
-                        </h4>
-                        <p className="text-[10.5px] text-blue-100 mt-1 flex items-center gap-1">
-                          <span>اضغط هنا لفتح قائمة الـ 10 مواقع القضائية الرسمية</span>
-                        </p>
-                      </div>
-                      <div className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center shrink-0">
-                        <ArrowRight size={14} className="rotate-180 text-white" />
-                      </div>
-                    </button>
+                  {/* 5. البنفسجي: البوابات القانونية */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setCurrentScreen('legal_portals')}
+                    onKeyDown={(e) => e.key === 'Enter' && setCurrentScreen('legal_portals')}
+                    className="w-full min-h-[50px] bg-[#6D28D9] hover:bg-[#5B21B6] border border-[#8B5CF6] text-white rounded-2xl px-2.5 py-1 flex items-center gap-2 transition-all text-right shadow-xs active:scale-[0.985] cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-white text-[#6D28D9] font-black text-xs tabular-nums flex items-center justify-center shrink-0 shadow-2xs">
+                      5
+                    </div>
+                    <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center text-white shrink-0">
+                      <Globe size={17} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-bold text-[11.5px] text-white block truncate">البوابات القانونية</span>
+                      <p className="text-[10px] text-purple-100 leading-tight mt-0.5 truncate">
+                        النيابة العامة ومحكمة الأسرة ومصر الرقمية (10 مواقع)
+                      </p>
+                    </div>
+                    <ArrowRight size={13} className="rotate-180 text-white/80 shrink-0" />
                   </div>
                 </div>
 
-                {/* شريط معلومات حفظ المعرض والمشاركة */}
-                <div className="bg-slate-100 border border-slate-200 rounded-xl p-2.5 flex items-center gap-2 text-[10.5px] text-slate-600">
-                  <FolderDown size={15} className="text-blue-700 shrink-0" />
-                  <span>الصور تُحفظ تلقائياً في المعرض (Gallery) • والـ PDF في التنزيلات (Downloads)</span>
+                {/* شريط معلومات حفظ المعرض والتنزيلات */}
+                <div className="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 text-[9.5px] text-slate-600">
+                  <FolderDown size={13} className="text-[#0F2557] shrink-0" />
+                  <span className="truncate">الصور تُحفظ في الاستوديو • والـ PDF في التنزيلات (Downloads)</span>
                 </div>
 
-                {/* ==================== تعديل مكان ومظهر اسم المصمم في الفوتر ==================== */}
-                <div className="text-center py-2.5 pt-3 text-[11px] font-semibold text-slate-400 border-t border-slate-200/70 mt-2">
-                  <span>تصميم وتنفيذ: مصطفى فرويز المحامي ⚖️</span>
+                {/* التذييل الرسمي الهادئ: العبارتان باللون الهادئ وحجم الخط القديم */}
+                <div className="text-center pt-1 pb-0.5 text-[10.5px] font-normal text-slate-400/80 border-t border-slate-200/60 space-y-0.5">
+                  <div>تصميم وتنفيذ: مصطفى فرويز المحامي</div>
+                  <div>Al-Hawai Tech</div>
                 </div>
               </div>
+            )}
+
+            {/* د) خدمة تصوير المستندات وتحسينها وضغطها */}
+            {currentScreen === 'document_scanner' && (
+              <DocumentScannerView
+                onBackHome={() => setCurrentScreen('home')}
+                onShowToast={showFlutterToast}
+                onSaveComplete={(detail, fileUrl, fileName, fileType) =>
+                  showSmartToast(detail, fileUrl, fileName, fileType)
+                }
+                onTriggerDownload={triggerDownload}
+                onGenerateSampleDoc={generateSampleImage}
+              />
             )}
 
             {/* شاشة قائمة الـ 10 مواقع القضائية المرقمة رأسياً من 1 إلى 10 */}
             {currentScreen === 'legal_portals' && (
               <div className="space-y-3 animate-fade-in pb-2">
-                <div className="bg-gradient-to-r from-[#1e3a8a] to-[#2563eb] text-white rounded-2xl p-3 shadow-xs">
+                <div className="bg-gradient-to-r from-[#5B21B6] to-[#7C3AED] text-white rounded-2xl p-3 shadow-xs border border-[#8B5CF6]/40">
                   <div className="flex items-center gap-2 mb-1">
-                    <Globe size={16} className="text-amber-300" />
+                    <Globe size={16} className="text-[#FDE047]" />
                     <h3 className="font-bold text-xs">
-                      مواقع النيابة ومحكمة الأسرة ومصر الرقمية (10 مواقع)
+                      البوابات القانونية الرسمية (10 مواقع)
                     </h3>
                   </div>
-                  <p className="text-[10px] text-blue-100 leading-normal">
+                  <p className="text-[10px] text-purple-100 leading-normal">
                     قائمة بالروابط الرسمية المباشرة لرفع ومتابعة قضاياك بعد ضغط المستندات:
                   </p>
                 </div>
@@ -1195,7 +1283,7 @@ export const PhoneSimulator: React.FC = () => {
               </div>
             )}
 
-            {/* أ) شاشة ضغط الصور (صورة أو أكثر < 200 KB) */}
+            {/* أ) شاشة ضغط الصور (صورة أو أكثر < 500 KB) */}
             {currentScreen === 'compress_image' && (
               <div className="space-y-3 animate-fade-in">
                 <input
@@ -1654,7 +1742,7 @@ export const PhoneSimulator: React.FC = () => {
                         {targetEditModal.type === 'image' ? 'تعديل حجم الصور المستهدف' : 'تعديل حجم PDF المستهدف'}
                       </h3>
                       <p className="text-[10px] text-slate-400">
-                        {targetEditModal.type === 'image' ? 'الافتراضي: 200 KB' : 'الافتراضي: 500 KB'}
+                        الافتراضي الموحد: 500 KB
                       </p>
                     </div>
                   </div>
@@ -1684,7 +1772,7 @@ export const PhoneSimulator: React.FC = () => {
                         if (e.key === 'Escape') setTargetEditModal((prev) => ({ ...prev, isOpen: false }));
                       }}
                       className="w-full text-center text-xl font-black font-mono py-2 px-10 bg-slate-50 border-2 border-slate-200 focus:border-blue-600 rounded-xl outline-hidden text-slate-900 transition-colors"
-                      placeholder={targetEditModal.type === 'image' ? '200' : '500'}
+                      placeholder="500"
                     />
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-xs text-slate-400 font-mono">
                       KB
@@ -1699,7 +1787,7 @@ export const PhoneSimulator: React.FC = () => {
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block font-semibold">خيارات سريعة:</span>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {(targetEditModal.type === 'image' ? [100, 150, 200, 300] : [250, 350, 500, 700]).map((preset) => (
+                    {[300, 400, 480, 500].map((preset) => (
                       <button
                         key={preset}
                         type="button"
@@ -1710,7 +1798,7 @@ export const PhoneSimulator: React.FC = () => {
                             : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                         }`}
                       >
-                        {preset} KB {preset === (targetEditModal.type === 'image' ? 200 : 500) && '★'}
+                        {preset} KB {preset === 500 && '★'}
                       </button>
                     ))}
                   </div>
@@ -1732,7 +1820,7 @@ export const PhoneSimulator: React.FC = () => {
                       onClick={handleResetTargetDefault}
                       className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10.5px] font-semibold transition-all"
                     >
-                      استعادة الافتراضي ({targetEditModal.type === 'image' ? '200' : '500'} KB)
+                      استعادة الافتراضي (500 KB)
                     </button>
                     <button
                       onClick={() => setTargetEditModal((prev) => ({ ...prev, isOpen: false }))}
@@ -1906,23 +1994,52 @@ export const PhoneSimulator: React.FC = () => {
             </div>
           )}
 
-          {/* ==================== رسالة الـ 3 ثوانٍ الذكية العائمة مع زر [ فتح ] ==================== */}
+          {/* ==================== مربع حوار تأكيد الحفظ في منتصف الشاشة (3 ثوانٍ مع × وفتح الملف) ==================== */}
           {smartToast.show && (
-            <div className="absolute bottom-7 left-3 right-3 z-50 animate-fade-in bg-slate-900/95 backdrop-blur-xs text-white border border-slate-700/80 rounded-2xl p-2.5 shadow-2xl flex items-center justify-between gap-2.5">
-              <div className="flex-1 min-w-0 text-xs font-bold text-slate-100 truncate text-right">
-                {smartToast.message}
-              </div>
-              {smartToast.fileUrl && (
+            <div
+              onClick={dismissSaveConfirmationDialog}
+              className="absolute inset-0 bg-[#09183B]/60 backdrop-blur-[2px] flex items-center justify-center p-4 z-50 animate-fade-in"
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-[285px] bg-white rounded-2xl p-4 text-slate-900 shadow-2xl border border-[#D4AF37]/80 animate-scale-in text-center relative"
+              >
                 <button
-                  onClick={() => {
-                    window.open(smartToast.fileUrl, '_blank');
-                    setSmartToast({ show: false, message: '' });
-                  }}
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shrink-0 shadow-md active:scale-95 transition-all"
+                  type="button"
+                  onClick={dismissSaveConfirmationDialog}
+                  aria-label="إغلاق"
+                  className="absolute top-2.5 left-2.5 w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors"
                 >
-                  فتح
+                  <X size={15} />
                 </button>
-              )}
+
+                <div className="w-11 h-11 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto mb-2.5">
+                  <CheckCircle2 size={26} />
+                </div>
+
+                <h4 className="font-bold text-[13px] text-[#0F2557] leading-snug px-2">
+                  {smartToast.message}
+                </h4>
+
+                {smartToast.sizeDetail && (
+                  <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                    {smartToast.sizeDetail}
+                  </p>
+                )}
+
+                {smartToast.fileUrl && (
+                  <a
+                    href={smartToast.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={dismissSaveConfirmationDialog}
+                    className="mt-3.5 w-full py-2.5 bg-[#0F2557] hover:bg-[#16347A] text-white rounded-xl text-xs font-bold shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                  >
+                    <ExternalLink size={14} className="text-[#FDE047]" />
+                    <span>فتح الملف</span>
+                  </a>
+                )}
+              </div>
             </div>
           )}
 

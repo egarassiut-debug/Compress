@@ -1,0 +1,53 @@
+name: legal_file_compressor_dev
+description: "ضغطة (تجريبي) - نسخة التطوير المعزولة لخدمة تصوير المستندات بحد أقصى 500 KB"
+publish_to: 'none'
+version: 3.2.0+5
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # واجهة المستخدم والأيقونات
+  cupertino_icons: ^1.0.8
+
+  # فتح روابط مواقع النيابة والمحاكم في المتصفح الخارجي
+  url_launcher: ^6.3.0
+
+  # اختيار الملفات والصور من ذاكرة الهاتف والكاميرا
+  file_picker: ^8.1.4
+  image_picker: ^1.1.2
+
+  # ضغط الصور محلياً بدقة فائقة لاستهداف بحد أقصى 500KB
+  flutter_image_compress: ^2.3.0
+  image: ^4.2.0
+
+  # كاميرا مباشرة لخدمة تصوير المستندات ضوئياً (تلقائي/يدوي + فلاش + تركيز تلقائي + كشف حدود الورقة)
+  camera: ^0.11.0+2
+
+  # إنشاء ودمج ومعالجة ملفات PDF لاستهداف أقل من 500KB
+  pdf: ^3.10.8
+  printing: ^5.13.2
+
+  # حفظ الإعدادات محلياً
+  shared_preferences: ^2.3.2
+
+  # مسارات حفظ الملفات وأذونات التخزين في Downloads
+  path_provider: ^2.1.4
+  permission_handler: ^11.3.1
+  open_filex: ^4.5.0
+  share_plus: ^10.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/welcome_logo.png

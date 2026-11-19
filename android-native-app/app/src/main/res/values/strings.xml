@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ضغطة</string>
+    <string name="app_tagline">ضغط مستندات المحامي لأقل من 500 KB</string>
+    <string name="welcome_title">أهلاً بك زميلي المحامي</string>
+    <string name="welcome_subtitle">اضغط مستنداتك وصورك بضغطة واحدة، بدون إنترنت، وبجودة عالية واجعلها جاهزة لتقديم الطلبات على منظومه النيابة والمحاكم.</string>
+    <string name="section_tools">اضغط على الخدمة التي تريدها</string>
+    <string name="service_1_title">تصغير حجم الصور</string>
+    <string name="service_1_desc">ضغط صورة أو أكثر بألوان كاملة (&lt; 500 KB)</string>
+    <string name="service_2_title">تصغير حجم ملفات PDF</string>
+    <string name="service_2_desc">تقليص العرائض والمذكرات مع الحفاظ على الأختام (&lt; 500 KB)</string>
+    <string name="service_3_title">دمج الصور في ملف PDF واحد</string>
+    <string name="service_3_desc">دمج أوراق المحاضر والحوافظ بدقة A4 حادة (&lt; 500 KB)</string>
+    <string name="service_4_title">تصوير المستندات وتحسينها وضغطها</string>
+    <string name="service_4_desc">تصوير تلقائي أو يدوي وقص وتحسين ألوان وحفظ صور و PDF (&lt; 500 KB)</string>
+    <string name="service_5_title">البوابات القانونية</string>
+    <string name="service_5_desc">النيابة العامة ومحكمة الأسرة ومصر الرقمية (10 مواقع)</string>
+    <string name="btn_share_app">مشاركة</string>
+    <string name="saved_in_downloads">الصور تُحفظ تلقائياً في المعرض (Gallery)، وملفات الـ PDF في التنزيلات (Downloads).</string>
+    <string name="designer_credit">تصميم وتنفيذ: مصطفى فرويز المحامي</string>
+    <string name="brand_credit">Al-Hawai Tech</string>
+</resources>

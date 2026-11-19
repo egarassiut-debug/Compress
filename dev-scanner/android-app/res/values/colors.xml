@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#0F2557</color>
+    <color name="primary_dark">#09183B</color>
+    <color name="accent">#D4AF37</color>
+    <color name="background">#F8FAFC</color>
+    <color name="card_bg">#FFFFFF</color>
+    <color name="text_primary">#0F172A</color>
+    <color name="text_secondary">#64748B</color>
+    <color name="blue_service">#1D4ED8</color>
+    <color name="orange_service">#D94E0B</color>
+    <color name="green_service">#047857</color>
+    <color name="teal_service">#0F766E</color>
+    <color name="purple_service">#6D28D9</color>
+</resources>

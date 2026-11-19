@@ -157,7 +157,7 @@ export const SetupGuide: React.FC = () => {
                 <li className="flex items-start gap-2">
                   <CheckCircle2 size={13} className="text-teal-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-slate-200">ترشيح فائق الحدة:</strong> استخدام دقة 72-96 DPI وتنعيم متدرج (Lanczos High-Quality Resampling) يمنع التشويش والتبكسل في الخطوط الدقيقة.
+                    <strong className="text-slate-200">ترشيح فائق الحدة (Zero Data Loss):</strong> تحجيم هندسي ذكي لأبعاد A4 وترشيح متدرج (Stepped Resampling) يمنع التشويش والتبكسل في الحروف والأرقام والتواريخ.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
@@ -169,7 +169,7 @@ export const SetupGuide: React.FC = () => {
                 <li className="flex items-start gap-2">
                   <CheckCircle2 size={13} className="text-teal-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-slate-200">ضمان صارم للمنظومة:</strong> أقل من 200 KB للصور الفردية، وأقل من 500 KB لملفات الـ PDF.
+                    <strong className="text-slate-200">المعيار الموحد الجديد للمنظومة:</strong> أقل من 500 KB حصرياً لكل من الصور الفردية وملفات الـ PDF دون المساس بوضوح النص.
                   </span>
                 </li>
               </ul>
@@ -360,23 +360,23 @@ export const SetupGuide: React.FC = () => {
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               <tr>
                 <td className="py-2.5 font-semibold text-white">الصور الفردية (توكيل، بطاقة، شهادة)</td>
-                <td className="py-2.5 text-blue-400 font-bold">&lt; 200 KB صارماً</td>
+                <td className="py-2.5 text-blue-400 font-bold">&lt; 500 KB (المعيار الموحد)</td>
                 <td className="py-2.5 text-slate-400">
-                  ترشيح فائق الجودة (Lanczos/Stepped Resampling) بدون أي تحويل لأبيض وأسود مع الحفاظ التام على الألوان والأختام، وضمان خروج الصورة حتماً أقل من 200 KB وحفظها بالمعرض.
+                  تحجيم هندسي ذكي لأبعاد A4 وترشيح فائق الجودة مع الحفاظ التام على الألوان والأختام (بدون أبيض وأسود) وضمان خروج الصورة أقل من 500 KB وحفظها بالمعرض.
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 font-semibold text-white">ملفات PDF (صحف وعرائض)</td>
-                <td className="py-2.5 text-orange-400 font-bold">&lt; 500 KB (شرط 450 KB)</td>
+                <td className="py-2.5 text-orange-400 font-bold">&lt; 500 KB (المعيار الموحد)</td>
                 <td className="py-2.5 text-slate-400">
-                  إعادة تشفير التيارات وفحص تلقائي: إذا تجاوز الملف 450 KB يُعاد ضغطه تلقائياً ليكون تحت 450 KB.
+                  الحفاظ على النصوص الفيكتورية أو ضغط الصفحات بدقة A4 عالية مع حد أدنى آمن للجودة (≥ 64%) لحماية وضوح البيانات والأختام.
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 font-semibold text-white">دمج الصور في ملف PDF واحد</td>
-                <td className="py-2.5 text-emerald-400 font-bold">&lt; 500 KB (شرط 450 KB)</td>
+                <td className="py-2.5 text-emerald-400 font-bold">&lt; 500 KB (المعيار الموحد)</td>
                 <td className="py-2.5 text-slate-400">
-                  تحجيم كل صورة داخل الـ PDF إلى أقصى أبعاد 800px وجودة 40%-50%، مع إعادة ضغط إجباري عند 450 KB.
+                  تحجيم هندسي متوازن لتناسب صفحة A4 بالألوان الكاملة مع تدفقات JPEG مباشرة لضمان ملف موحد أقل من 500 KB بحِدة تامة.
                 </td>
               </tr>
             </tbody>

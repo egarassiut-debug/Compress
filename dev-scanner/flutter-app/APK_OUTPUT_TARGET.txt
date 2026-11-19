@@ -1,0 +1,6 @@
+Dev APK Output Path: dev-scanner/apk/daghta-scanner-dev.apk
+Application ID: com.example.legal_file_compressor.dev
+App Label: ضغطة (تجريبي)
+Does NOT overwrite stable com.example.legal_file_compressor or public/app-debug.apk.
+No prebuilt APK is bundled inside this ZIP.
+Build from Android Phone Only: see BUILD_FROM_PHONE.md (.github/workflows/build_dev_apk.yml & codemagic.yaml).
