@@ -63,7 +63,7 @@ export const CodeViewer: React.FC = () => {
             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95"
           >
             <Package size={14} />
-            <span>تنزيل APK المترجم (2.1 MB)</span>
+            <span>تنزيل APK المترجم (v3.2.0 • 2.1 MB)</span>
           </button>
 
           <button

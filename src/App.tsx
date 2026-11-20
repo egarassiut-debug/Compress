@@ -84,7 +84,7 @@ export default function App() {
               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-emerald-900/30 transition-all active:scale-95"
             >
               <Package size={16} />
-              <span>تنزيل ملف APK المترجم (2.1 MB)</span>
+              <span>تنزيل ملف APK المترجم (v3.2.0 • 2.1 MB)</span>
             </button>
 
             <button

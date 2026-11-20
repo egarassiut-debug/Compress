@@ -583,6 +583,17 @@ public final class DocumentScannerEngine {
         int filterMode,
         int maxWorkingDim
     ) {
+        return warpRotateAndEnhance(source, corners, rotationDeg, filterMode, 0, maxWorkingDim);
+    }
+
+    public static Bitmap warpRotateAndEnhance(
+        Bitmap source,
+        float[] corners,
+        int rotationDeg,
+        int filterMode,
+        int brightnessAdjust,
+        int maxWorkingDim
+    ) {
         int sw = source.getWidth();
         int sh = source.getHeight();
 
@@ -636,7 +647,7 @@ public final class DocumentScannerEngine {
             if (oriented != warped) warped.recycle();
         }
 
-        Bitmap filtered = applyDocumentFilter(oriented, filterMode);
+        Bitmap filtered = applyDocumentFilter(oriented, filterMode, brightnessAdjust);
         if (filtered != oriented) oriented.recycle();
         return filtered;
     }
@@ -648,6 +659,12 @@ public final class DocumentScannerEngine {
      * 2 = أبيض وأسود ذكي يحفظ التوقيعات والأرقام الدقيقة
      */
     public static Bitmap applyDocumentFilter(Bitmap src, int filterMode) {
+        return applyDocumentFilter(src, filterMode, 0);
+    }
+
+    public static Bitmap applyDocumentFilter(Bitmap src, int filterMode, int brightnessAdjust) {
+        int clampedBright = Math.max(-35, Math.min(45, brightnessAdjust));
+        float brightOffset = clampedBright * 1.15f;
         int w = src.getWidth();
         int h = src.getHeight();
         int[] pixels = new int[w * h];
@@ -723,9 +740,9 @@ public final class DocumentScannerEngine {
                 float effGain = 1f + (gain - 1f) * 0.72f;
 
                 int c = pixels[y * w + x];
-                float r = ((c >> 16) & 0xFF) * effGain;
-                float g = ((c >> 8) & 0xFF) * effGain;
-                float b = (c & 0xFF) * effGain;
+                float r = ((c >> 16) & 0xFF) * effGain + brightOffset;
+                float g = ((c >> 8) & 0xFF) * effGain + brightOffset;
+                float b = (c & 0xFF) * effGain + brightOffset;
                 float lum = 0.299f * r + 0.587f * g + 0.114f * b;
 
                 if (filterMode == FILTER_GRAYSCALE) {

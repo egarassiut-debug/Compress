@@ -68,7 +68,7 @@ export async function downloadFlutterProjectZip(): Promise<void> {
 
   // محاولة تضمين ملف الـ APK الحقيقي والمترجم داخل الـ ZIP
   try {
-    const apkResponse = await fetch('/app-debug.apk');
+    const apkResponse = await fetch(`/app-debug.apk?v=3.2.0&t=${Date.now()}`, { cache: 'no-store' });
     if (apkResponse.ok) {
       const apkBuffer = await apkResponse.arrayBuffer();
       // تضمين الـ APK حصرياً في مجلد APK_DOWNLOAD المباشر داخل الـ ZIP
@@ -135,7 +135,7 @@ dependencies {
 تطبيق أندرويد خدمي متكامل مخصص للسادة المحامين لتسهيل التعامل مع منصات النيابة العامة وبوابة مصر الرقمية والمحاكم.
 
 ## 📦 ملف التطبيق الجاهز للتثبيت (Real Android Debug APK):
-- تم تضمين ملف الـ APK المترجم والموقّع رسمياً حصرياً داخل مجلد \`APK_DOWNLOAD/app-debug.apk\` بحجم 2.1 MB (v3.1.0).
+- تم تضمين ملف الـ APK المترجم والموقّع رسمياً حصرياً داخل مجلد \`APK_DOWNLOAD/app-debug.apk\` بحجم 2.1 MB (v3.2.0) شاملاً خدمة تصوير المستندات الجديدة.
 - يتضمن الأيقونة الرسمية لتطبيق **«ضغطة»** على سطح مكتب الهاتف بجميع المقاسات وشعار بطاقة الترحيب المرفق داخل الشاشة الرئيسية.
 
 ## 📱 الهوية البصرية والمميزات الأساسية:
@@ -179,7 +179,7 @@ flutter run
  */
 export function downloadRealApkDirectly(): void {
   const a = document.createElement('a');
-  a.href = '/app-debug.apk';
+  a.href = `/app-debug.apk?v=3.2.0&t=${Date.now()}`;
   a.download = 'app-debug.apk';
   document.body.appendChild(a);
   a.click();
