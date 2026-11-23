@@ -10,13 +10,15 @@ import android.util.AttributeSet;
 import android.view.View;
 
 /**
- * إطار المعاينة الحية فوق الكاميرا لعرض حدود الورقة والزوايا الأربع المكتشفة تلقائياً في الزمن الحقيقي.
+ * إطار المعاينة الحية فوق الكاميرا لعرض حدود الورقة والزوايا الأربع المكتشفة تلقائياً
+ * مع تخميد القفزات المفاجئة (Outlier Jump Damping) لاستقرار بصري احترافي.
  */
 public class ScannerOverlayView extends View {
 
     private float[] corners = DocumentScannerEngine.defaultGuideCorners();
     private boolean detected = false;
     private boolean stableAndSharp = false;
+    private int consecutiveJumpFrames = 0;
 
     private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -51,12 +53,28 @@ public class ScannerOverlayView extends View {
 
     public void updateDetection(float[] newCorners, boolean isDetected, boolean isStableAndSharp) {
         if (newCorners != null && newCorners.length == 8) {
-            if (this.corners == null) {
+            if (this.corners == null || (!this.detected && isDetected)) {
                 this.corners = newCorners.clone();
+                consecutiveJumpFrames = 0;
             } else {
-                // تنعيم حركة الإطار (Exponential smoothing) ليتتبع حركة الهاتف بسلاسة
+                float maxShift = 0f;
+                for (int i = 0; i < 4; i++) {
+                    float d = (float) Math.hypot(
+                        this.corners[i * 2] - newCorners[i * 2],
+                        this.corners[i * 2 + 1] - newCorners[i * 2 + 1]
+                    );
+                    if (d > maxShift) maxShift = d;
+                }
+                float alpha;
+                if (this.detected && isDetected && maxShift > 0.22f) {
+                    consecutiveJumpFrames++;
+                    alpha = consecutiveJumpFrames >= 2 ? 0.44f : 0.22f;
+                } else {
+                    consecutiveJumpFrames = 0;
+                    alpha = 0.42f;
+                }
                 for (int i = 0; i < 8; i++) {
-                    this.corners[i] = this.corners[i] * 0.55f + newCorners[i] * 0.45f;
+                    this.corners[i] = this.corners[i] * (1f - alpha) + newCorners[i] * alpha;
                 }
             }
         }

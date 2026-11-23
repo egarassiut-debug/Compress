@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
@@ -12,7 +13,10 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * محرر قص يدوي تفاعلي فوق الصورة الأصلية يتيح سحب الزوايا الأربع (TL, TR, BR, BL) لتصحيح المنظور بدقة.
+ * محرر قص يدوي تفاعلي فوق الصورة الأصلية:
+ * - سحب الزوايا الأربع (TL, TR, BR, BL) لتصحيح المنظور بدقة
+ * - عدسة تكبير دائرية تفاعلية (2.5x Magnifying Loupe) تظهر أثناء سحب الزاوية
+ *   وتنزيح تلقائياً عن الإصبع والزوايا وتختفي فور رفع الإصبع
  */
 public class CropOverlayView extends View {
 
@@ -26,8 +30,17 @@ public class CropOverlayView extends View {
     private final Paint handleFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint handleStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bmpPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+
+    private final Paint loupeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint loupeCrossPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint loupeRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint loupeGoldRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint loupeDotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
     private final Path outerPath = new Path();
     private final Path innerPath = new Path();
+    private final Path loupeClipPath = new Path();
+    private final Matrix loupeMatrix = new Matrix();
 
     public CropOverlayView(Context context) {
         super(context);
@@ -53,6 +66,24 @@ public class CropOverlayView extends View {
         handleStrokePaint.setColor(Color.parseColor("#0F2557"));
         handleStrokePaint.setStyle(Paint.Style.STROKE);
         handleStrokePaint.setStrokeWidth(5f);
+
+        loupeBgPaint.setColor(Color.parseColor("#0F172A"));
+        loupeBgPaint.setStyle(Paint.Style.FILL);
+
+        loupeCrossPaint.setColor(Color.argb(225, 45, 212, 191));
+        loupeCrossPaint.setStyle(Paint.Style.STROKE);
+        loupeCrossPaint.setStrokeWidth(3f);
+
+        loupeRingPaint.setColor(Color.parseColor("#0F2557"));
+        loupeRingPaint.setStyle(Paint.Style.STROKE);
+        loupeRingPaint.setStrokeWidth(8f);
+
+        loupeGoldRingPaint.setColor(Color.parseColor("#FDE047"));
+        loupeGoldRingPaint.setStyle(Paint.Style.STROKE);
+        loupeGoldRingPaint.setStrokeWidth(4f);
+
+        loupeDotPaint.setColor(Color.parseColor("#FDE047"));
+        loupeDotPaint.setStyle(Paint.Style.FILL);
     }
 
     public void setImageAndCorners(Bitmap bmp, float[] initialCorners) {
@@ -62,6 +93,7 @@ public class CropOverlayView extends View {
         } else {
             this.corners = DocumentScannerEngine.fullFrameCorners();
         }
+        this.activeCorner = -1;
         computeImageBounds();
         invalidate();
     }
@@ -94,7 +126,7 @@ public class CropOverlayView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (sourceBitmap == null) return;
+        if (sourceBitmap == null || sourceBitmap.isRecycled()) return;
         if (imageRect.width() <= 0) computeImageBounds();
 
         canvas.drawBitmap(sourceBitmap, null, imageRect, bmpPaint);
@@ -125,6 +157,56 @@ public class CropOverlayView extends View {
             canvas.drawCircle(sx[i], sy[i], r, handleFillPaint);
             canvas.drawCircle(sx[i], sy[i], r, handleStrokePaint);
         }
+
+        // عدسة التكبير الدائرية (تظهر فقط أثناء سحب إحدى الزوايا وتختفي فور الإفلات)
+        if (activeCorner >= 0 && activeCorner < 4) {
+            drawMagnifyingLoupe(canvas, sx[activeCorner], sy[activeCorner],
+                corners[activeCorner * 2], corners[activeCorner * 2 + 1]);
+        }
+    }
+
+    private void drawMagnifyingLoupe(Canvas canvas, float screenX, float screenY, float normX, float normY) {
+        int vw = getWidth();
+        int vh = getHeight();
+        if (vw <= 0 || vh <= 0 || sourceBitmap == null || sourceBitmap.isRecycled()) return;
+
+        float radius = Math.max(88f, Math.min(138f, Math.min(vw, vh) * 0.145f));
+        float pad = 16f;
+
+        // وضع العدسة أعلى الإصبع عادة، أو أسفله إذا اقترب من الحافة العليا حتى لا يحجبها الإصبع أو إطار الشاشة
+        float lx = Math.max(radius + pad, Math.min(vw - radius - pad, screenX));
+        float lyAbove = screenY - radius - 78f;
+        float lyBelow = screenY + radius + 78f;
+        float ly = (lyAbove >= radius + pad) ? lyAbove : Math.min(vh - radius - pad, lyBelow);
+
+        float bx = normX * sourceBitmap.getWidth();
+        float by = normY * sourceBitmap.getHeight();
+        float baseScale = imageRect.width() / Math.max(1f, sourceBitmap.getWidth());
+        float zoomScale = baseScale * 2.55f;
+
+        loupeMatrix.reset();
+        loupeMatrix.postTranslate(-bx, -by);
+        loupeMatrix.postScale(zoomScale, zoomScale);
+        loupeMatrix.postTranslate(lx, ly);
+
+        canvas.save();
+        loupeClipPath.reset();
+        loupeClipPath.addCircle(lx, ly, radius, Path.Direction.CW);
+        canvas.clipPath(loupeClipPath);
+
+        canvas.drawCircle(lx, ly, radius, loupeBgPaint);
+        canvas.drawBitmap(sourceBitmap, loupeMatrix, bmpPaint);
+
+        float gap = 16f;
+        canvas.drawLine(lx - radius, ly, lx - gap, ly, loupeCrossPaint);
+        canvas.drawLine(lx + gap, ly, lx + radius, ly, loupeCrossPaint);
+        canvas.drawLine(lx, ly - radius, lx, ly - gap, loupeCrossPaint);
+        canvas.drawLine(lx, ly + gap, lx, ly + radius, loupeCrossPaint);
+        canvas.drawCircle(lx, ly, 6f, loupeDotPaint);
+        canvas.restore();
+
+        canvas.drawCircle(lx, ly, radius, loupeRingPaint);
+        canvas.drawCircle(lx, ly, radius + 3f, loupeGoldRingPaint);
     }
 
     @Override
@@ -136,7 +218,7 @@ public class CropOverlayView extends View {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 activeCorner = -1;
-                float bestDist = 90f;
+                float bestDist = 96f;
                 for (int i = 0; i < 4; i++) {
                     float cx = imageRect.left + corners[i * 2] * imageRect.width();
                     float cy = imageRect.top + corners[i * 2 + 1] * imageRect.height();

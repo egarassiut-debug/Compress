@@ -193,6 +193,8 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
   const [draggingCornerIdx, setDraggingCornerIdx] = useState<number | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const cropStageRef = useRef<HTMLDivElement>(null);
+  const cropImgRef = useRef<HTMLImageElement | null>(null);
+  const loupeCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // حالة الحفظ والتصدير (المرحلة 3)
   const [isSaving, setIsSaving] = useState(false);
@@ -384,6 +386,7 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
           processedUrl: processed.processedUrl,
           processedBlob: processed.processedBlob,
           processedSize: processed.processedBlob.size,
+          curvatureDetected: processed.curvatureDetected,
         };
 
         if (retakeIndex !== null) {
@@ -507,16 +510,22 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
       const video = videoRef.current;
       if (!video || video.videoWidth === 0 || isCapturing || isImportingStudio) return;
 
-      const { gray, width, height } = sampleGrayscaleFrame(video, 120, 160);
-      const det = detectDocumentQuadFromGray(gray, width, height);
-      setLiveQuad((prev) =>
-        det.detected
-          ? ([0, 1, 2, 3].map((i) => ({
-              x: prev[i].x * 0.5 + det.quad[i].x * 0.5,
-              y: prev[i].y * 0.5 + det.quad[i].y * 0.5,
-            })) as QuadCorners)
-          : det.quad
-      );
+      const { gray, rgba, width, height } = sampleGrayscaleFrame(video, 160, 213);
+      const det = detectDocumentQuadFromGray(gray, width, height, rgba);
+      setLiveQuad((prev) => {
+        if (!det.detected) return det.quad;
+        let maxShift = 0;
+        for (let i = 0; i < 4; i++) {
+          const d = Math.hypot(prev[i].x - det.quad[i].x, prev[i].y - det.quad[i].y);
+          if (d > maxShift) maxShift = d;
+        }
+        // تخميد القفزات المفاجئة الناتجة عن الظلال العابرة مع إبقاء التتبع السلس
+        const alpha = maxShift > 0.22 && det.confidence < 0.72 ? 0.25 : 0.45;
+        return [0, 1, 2, 3].map((i) => ({
+          x: prev[i].x * (1 - alpha) + det.quad[i].x * alpha,
+          y: prev[i].y * (1 - alpha) + det.quad[i].y * alpha,
+        })) as QuadCorners;
+      });
       setLiveDetected(det.detected);
       setLiveSharpness(det.sharpness);
 
@@ -609,6 +618,7 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
             processedBlob: result.processedBlob,
             processedUrl: result.processedUrl,
             processedSize: result.processedBlob.size,
+            curvatureDetected: result.curvatureDetected,
             isProcessing: false,
           };
         })
@@ -834,6 +844,98 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
 
   const currentPage = pages[selectedIndex];
   const stageIdx = stage === 'capture' ? 1 : stage === 'review' ? 2 : 3;
+  const activeCropCorner =
+    isManualCropOpen && draggingCornerIdx !== null ? editingCorners[draggingCornerIdx] : null;
+
+  useEffect(() => {
+    if (!isManualCropOpen || !currentPage?.originalUrl) {
+      cropImgRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled) cropImgRef.current = img;
+    };
+    img.src = currentPage.originalUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [isManualCropOpen, currentPage?.originalUrl]);
+
+  useEffect(() => {
+    if (!activeCropCorner || !loupeCanvasRef.current || !cropImgRef.current) return;
+    const canvas = loupeCanvasRef.current;
+    const img = cropImgRef.current;
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if (iw <= 0 || ih <= 0) return;
+
+    const size = 192;
+    if (canvas.width !== size) canvas.width = size;
+    if (canvas.height !== size) canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#0F172A';
+    ctx.fillRect(0, 0, size, size);
+
+    const cx = activeCropCorner.x * iw;
+    const cy = activeCropCorner.y * ih;
+    const srcSpan = Math.max(48, Math.min(iw, ih) * 0.22);
+    const halfSpan = srcSpan * 0.5;
+    const sx0 = cx - halfSpan;
+    const sy0 = cy - halfSpan;
+
+    const clipLeft = Math.max(0, sx0);
+    const clipTop = Math.max(0, sy0);
+    const clipRight = Math.min(iw, sx0 + srcSpan);
+    const clipBottom = Math.min(ih, sy0 + srcSpan);
+
+    if (clipRight > clipLeft && clipBottom > clipTop) {
+      const dx = ((clipLeft - sx0) / srcSpan) * size;
+      const dy = ((clipTop - sy0) / srcSpan) * size;
+      const dw = ((clipRight - clipLeft) / srcSpan) * size;
+      const dh = ((clipBottom - clipTop) / srcSpan) * size;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(
+        img,
+        clipLeft,
+        clipTop,
+        clipRight - clipLeft,
+        clipBottom - clipTop,
+        dx,
+        dy,
+        dw,
+        dh
+      );
+    }
+
+    const mid = size * 0.5;
+    ctx.strokeStyle = 'rgba(45, 212, 191, 0.88)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(mid - 14, mid);
+    ctx.moveTo(mid + 14, mid);
+    ctx.lineTo(size, mid);
+    ctx.moveTo(mid, 0);
+    ctx.lineTo(mid, mid - 14);
+    ctx.moveTo(mid, mid + 14);
+    ctx.lineTo(mid, size);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#0F2557';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(mid, mid, 6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#FDE047';
+    ctx.beginPath();
+    ctx.arc(mid, mid, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }, [activeCropCorner]);
 
   return (
     <div dir="rtl" className="flex flex-col h-full -mx-3 -my-2.5 bg-slate-50 relative select-none">
@@ -1169,14 +1271,32 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
               <span>{currentPage.rotationDeg}°</span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsLightboxOpen(true)}
-              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-[#0F2557] rounded-lg text-[10px] font-bold flex items-center gap-1 whitespace-nowrap shrink-0"
-            >
-              <Maximize2 size={11} />
-              <span>تكبير</span>
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                disabled={currentPage.isProcessing}
+                onClick={() => {
+                  reprocessPageAt(selectedIndex, {
+                    filterMode: 'color',
+                    brightnessAdjust: 0,
+                  });
+                  onShowToast('تم تطبيق التحسين التلقائي للمستند');
+                }}
+                className="px-2 py-1 bg-teal-50 hover:bg-teal-100 text-[#0F766E] border border-teal-200 rounded-lg text-[10px] font-bold flex items-center gap-1 whitespace-nowrap shrink-0 disabled:opacity-50"
+              >
+                <RefreshCw size={11} />
+                <span>تحسين تلقائي</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsLightboxOpen(true)}
+                className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-[#0F2557] rounded-lg text-[10px] font-bold flex items-center gap-1 whitespace-nowrap shrink-0"
+              >
+                <Maximize2 size={11} />
+                <span>تكبير</span>
+              </button>
+            </div>
           </div>
 
           {/* معاينة الصفحة المكبرة */}
@@ -1331,16 +1451,17 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     reprocessPageAt(selectedIndex, {
                       filterMode: 'color',
                       brightnessAdjust: 0,
-                    })
-                  }
+                    });
+                    onShowToast('تم تطبيق التحسين التلقائي للمستند');
+                  }}
                   className="py-1.5 px-2 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1"
                 >
                   <RefreshCw size={11} />
-                  <span>ضبط تلقائي</span>
+                  <span>تحسين تلقائي</span>
                 </button>
               </div>
 
@@ -1584,6 +1705,7 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
           <div
             onPointerMove={handleCropPointerMove}
             onPointerUp={() => setDraggingCornerIdx(null)}
+            onPointerCancel={() => setDraggingCornerIdx(null)}
             onPointerLeave={() => setDraggingCornerIdx(null)}
             className="flex-1 bg-black rounded-2xl overflow-hidden flex items-center justify-center p-2 touch-none select-none min-h-0"
           >
@@ -1610,11 +1732,31 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
               {editingCorners.map((pt, idx) => (
                 <div
                   key={idx}
+                  data-testid={`crop-corner-${idx}`}
                   onPointerDown={() => setDraggingCornerIdx(idx)}
                   style={{ left: `${pt.x * 100}%`, top: `${pt.y * 100}%` }}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#FDE047] border-2 border-[#0F2557] shadow-lg cursor-grab active:cursor-grabbing"
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#FDE047] border-2 border-[#0F2557] shadow-lg cursor-grab active:cursor-grabbing ${
+                    draggingCornerIdx === idx ? 'w-7 h-7 scale-110 ring-2 ring-teal-400' : 'w-6 h-6'
+                  }`}
                 />
               ))}
+
+              {/* عدسة التكبير الدائرية أثناء سحب أي زاوية */}
+              {activeCropCorner && (
+                <div
+                  data-testid="crop-magnifying-loupe"
+                  style={{
+                    left: `${Math.max(16, Math.min(84, activeCropCorner.x * 100))}%`,
+                    top:
+                      activeCropCorner.y < 0.28
+                        ? `calc(${activeCropCorner.y * 100}% + 68px)`
+                        : `calc(${activeCropCorner.y * 100}% - 68px)`,
+                  }}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full overflow-hidden border-[3px] border-[#0F2557] ring-2 ring-[#FDE047] shadow-2xl pointer-events-none z-50 bg-slate-900"
+                >
+                  <canvas ref={loupeCanvasRef} className="w-full h-full block" />
+                </div>
+              )}
             </div>
           </div>
 
