@@ -42,9 +42,11 @@ public class CropOverlayView extends View {
     private float padDp;
 
     private final Paint dimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint lineOutlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint handleFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint handleStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint handleInnerDotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint edgeHandlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bmpPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
 
@@ -76,16 +78,20 @@ public class CropOverlayView extends View {
     }
 
     private void init() {
-        cornerRadiusDp = dp(10f);
-        cornerActiveRadiusDp = dp(13f);
-        edgeHandleLenDp = dp(14f);
-        touchThresholdDp = dp(38f);
+        cornerRadiusDp = dp(11f);
+        cornerActiveRadiusDp = dp(14f);
+        edgeHandleLenDp = dp(16f);
+        touchThresholdDp = dp(40f);
         loupeRadiusDp = dp(52f);
-        loupeOffsetDp = dp(64f);
+        loupeOffsetDp = dp(66f);
         padDp = dp(18f);
 
-        dimPaint.setColor(Color.argb(135, 0, 0, 0));
+        dimPaint.setColor(Color.argb(145, 0, 0, 0));
         dimPaint.setStyle(Paint.Style.FILL);
+
+        lineOutlinePaint.setColor(Color.argb(210, 15, 23, 42));
+        lineOutlinePaint.setStyle(Paint.Style.STROKE);
+        lineOutlinePaint.setStrokeWidth(dp(4.2f));
 
         linePaint.setColor(Color.parseColor("#2DD4BF"));
         linePaint.setStyle(Paint.Style.STROKE);
@@ -96,7 +102,10 @@ public class CropOverlayView extends View {
 
         handleStrokePaint.setColor(Color.parseColor("#0F2557"));
         handleStrokePaint.setStyle(Paint.Style.STROKE);
-        handleStrokePaint.setStrokeWidth(dp(2.2f));
+        handleStrokePaint.setStrokeWidth(dp(2.4f));
+
+        handleInnerDotPaint.setColor(Color.parseColor("#0F2557"));
+        handleInnerDotPaint.setStyle(Paint.Style.FILL);
 
         edgeHandlePaint.setColor(Color.parseColor("#2DD4BF"));
         edgeHandlePaint.setStyle(Paint.Style.FILL);
@@ -127,9 +136,7 @@ public class CropOverlayView extends View {
     public void setImageAndCorners(Bitmap bmp, float[] initialCorners) {
         this.sourceBitmap = bmp;
         if (initialCorners != null && initialCorners.length == 8 && DocumentScannerEngine.isConvexQuad(initialCorners)) {
-            this.corners = initialCorners.clone();
-        } else if (initialCorners != null && initialCorners.length == 8) {
-            this.corners = initialCorners.clone();
+            this.corners = DocumentScannerEngine.canonicalOrderQuad(initialCorners);
         } else {
             this.corners = DocumentScannerEngine.fullFrameCorners();
         }
@@ -188,6 +195,8 @@ public class CropOverlayView extends View {
         outerPath.setFillType(Path.FillType.EVEN_ODD);
         outerPath.addPath(innerPath);
         canvas.drawPath(outerPath, dimPaint);
+        // هالة داكنة رفيعة خلف خط القص ليبقى واضحاً فوق الورق الأبيض والخلفيات الداكنة
+        canvas.drawPath(innerPath, lineOutlinePaint);
         canvas.drawPath(innerPath, linePaint);
 
         // مقابض منتصف الأضلاع الأربعة
@@ -196,7 +205,7 @@ public class CropOverlayView extends View {
             float mx = (sx[e] + sx[next]) * 0.5f;
             float my = (sy[e] + sy[next]) * 0.5f;
             boolean isActive = (activeHandle == HANDLE_EDGE_OFFSET + e);
-            float r = isActive ? dp(7.5f) : dp(5.5f);
+            float r = isActive ? dp(8f) : dp(6f);
             canvas.drawCircle(mx, my, r, edgeHandlePaint);
             canvas.drawCircle(mx, my, r, handleStrokePaint);
         }
@@ -206,6 +215,7 @@ public class CropOverlayView extends View {
             float r = (i == activeHandle) ? cornerActiveRadiusDp : cornerRadiusDp;
             canvas.drawCircle(sx[i], sy[i], r, handleFillPaint);
             canvas.drawCircle(sx[i], sy[i], r, handleStrokePaint);
+            canvas.drawCircle(sx[i], sy[i], dp(2.4f), handleInnerDotPaint);
         }
 
         // عدسة التكبير الدائرية: تظهر أثناء سحب الزاوية أو منتصف الضلع وتختفي فور رفع الإصبع
@@ -228,28 +238,53 @@ public class CropOverlayView extends View {
         int vh = getHeight();
         if (vw <= 0 || vh <= 0 || sourceBitmap == null || sourceBitmap.isRecycled()) return;
 
-        float radius = Math.max(dp(44f), Math.min(dp(64f), Math.min(vw, vh) * 0.145f));
+        float radius = Math.max(dp(44f), Math.min(dp(62f), Math.min(vw, vh) * 0.145f));
         float margin = dp(12f);
+        float minSafeDist = radius + dp(28f);
         float offset = radius + loupeOffsetDp;
 
-        // تموضع ذكي متوافق مع RTL ولا يحجب النقطة المسحوبة أو يخرج من الشاشة
-        float lx = screenX;
-        float ly = screenY - offset;
-        if (ly - radius < margin) {
-            ly = screenY + offset;
-        }
-        if (ly + radius > vh - margin) {
-            ly = Math.max(radius + margin, Math.min(vh - radius - margin, screenY));
-            boolean isRtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
-            float sideOffset = radius + dp(56f);
-            float prefX = isRtl ? (screenX - sideOffset) : (screenX + sideOffset);
-            if (prefX - radius < margin || prefX + radius > vw - margin) {
-                prefX = (screenX < vw * 0.5f) ? (screenX + sideOffset) : (screenX - sideOffset);
+        float minX = radius + margin;
+        float maxX = Math.max(minX, vw - radius - margin);
+        float minY = radius + margin;
+        float maxY = Math.max(minY, vh - radius - margin);
+
+        // مصفوفة مواضع مرشحة تضمن عدم تغطية النقطة المسحوبة أو الإصبع بأي حال
+        boolean isRtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+        float sideShift = isRtl ? -(radius + dp(58f)) : (radius + dp(58f));
+        float[][] candidates = new float[][]{
+            { screenX, screenY - offset },                                 // أعلى النقطة مباشرة
+            { screenX + sideShift, screenY - offset * 0.85f },             // أعلى جانبي
+            { screenX - sideShift, screenY - offset * 0.85f },             // أعلى الجانب المقابل
+            { screenX + sideShift, screenY },                              // جانب موازٍ
+            { screenX - sideShift, screenY },                              // الجانب الآخر
+            { screenX, screenY + offset },                                 // أسفل النقطة
+            { screenX < vw * 0.5f ? maxX : minX, minY }                    // زاوية الشاشة العلوية المقابلة
+        };
+
+        float lx = candidates[0][0];
+        float ly = candidates[0][1];
+        float bestDist = -1f;
+        boolean foundClear = false;
+        for (int i = 0; i < candidates.length; i++) {
+            float cx = Math.max(minX, Math.min(maxX, candidates[i][0]));
+            float cy = Math.max(minY, Math.min(maxY, candidates[i][1]));
+            float d = (float) Math.hypot(cx - screenX, cy - screenY);
+            if (d >= minSafeDist) {
+                lx = cx;
+                ly = cy;
+                foundClear = true;
+                break;
             }
-            lx = prefX;
+            if (d > bestDist) {
+                bestDist = d;
+                lx = cx;
+                ly = cy;
+            }
         }
-        lx = Math.max(radius + margin, Math.min(vw - radius - margin, lx));
-        ly = Math.max(radius + margin, Math.min(vh - radius - margin, ly));
+        if (!foundClear && bestDist < minSafeDist) {
+            lx = (screenX < vw * 0.5f) ? maxX : minX;
+            ly = (screenY < vh * 0.5f) ? maxY : minY;
+        }
 
         float bx = normX * sourceBitmap.getWidth();
         float by = normY * sourceBitmap.getHeight();
@@ -290,6 +325,23 @@ public class CropOverlayView extends View {
 
         canvas.drawCircle(lx, ly, radius, loupeRingPaint);
         canvas.drawCircle(lx, ly, radius + dp(1.5f), loupeGoldRingPaint);
+    }
+
+    private boolean isAcceptableManualQuad(float[] candidate) {
+        if (!DocumentScannerEngine.isConvexQuad(candidate)) return false;
+        double topW = Math.hypot(candidate[2] - candidate[0], candidate[3] - candidate[1]);
+        double botW = Math.hypot(candidate[4] - candidate[6], candidate[5] - candidate[7]);
+        double leftH = Math.hypot(candidate[6] - candidate[0], candidate[7] - candidate[1]);
+        double rightH = Math.hypot(candidate[4] - candidate[2], candidate[5] - candidate[3]);
+        double minSide = Math.min(Math.min(topW, botW), Math.min(leftH, rightH));
+        if (minSide < 0.05) return false;
+        double area = Math.abs(
+            (candidate[0] * candidate[3] - candidate[2] * candidate[1]) +
+            (candidate[2] * candidate[5] - candidate[4] * candidate[3]) +
+            (candidate[4] * candidate[7] - candidate[6] * candidate[5]) +
+            (candidate[6] * candidate[1] - candidate[0] * candidate[7])
+        ) * 0.5;
+        return area >= 0.04;
     }
 
     @Override
@@ -339,7 +391,7 @@ public class CropOverlayView extends View {
                     float[] candidate = corners.clone();
                     candidate[activeHandle * 2] = nx;
                     candidate[activeHandle * 2 + 1] = ny;
-                    if (DocumentScannerEngine.isConvexQuad(candidate)) {
+                    if (isAcceptableManualQuad(candidate)) {
                         corners = candidate;
                     }
                     lastTouchX = x;
@@ -356,7 +408,7 @@ public class CropOverlayView extends View {
                     candidate[e * 2 + 1] = Math.max(0f, Math.min(1f, candidate[e * 2 + 1] + dyNorm));
                     candidate[next * 2] = Math.max(0f, Math.min(1f, candidate[next * 2] + dxNorm));
                     candidate[next * 2 + 1] = Math.max(0f, Math.min(1f, candidate[next * 2 + 1] + dyNorm));
-                    if (DocumentScannerEngine.isConvexQuad(candidate)) {
+                    if (isAcceptableManualQuad(candidate)) {
                         corners = candidate;
                     }
                     lastTouchX = x;

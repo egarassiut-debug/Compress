@@ -65,21 +65,10 @@
             android:layout_marginStart="4dp" />
 
         <Button
-            android:id="@+id/btn_help_guide"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:text="؟"
-            android:textColor="#FDE047"
-            android:background="@drawable/bg_scanner_pill_dark"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:layout_marginStart="4dp" />
-
-        <Button
             android:id="@+id/btn_more_settings"
-            android:layout_width="34dp"
+            android:layout_width="36dp"
             android:layout_height="34dp"
-            android:text="⋮"
+            android:text="⚙"
             android:textColor="#FFFFFF"
             android:background="@drawable/bg_scanner_pill_dark"
             android:textSize="14sp"
@@ -162,16 +151,16 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="10dp"
-            android:paddingLeft="14dp"
-            android:paddingRight="14dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
+            android:layout_marginTop="8dp"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
             android:background="@drawable/bg_scanner_pill_dark"
             android:text="وجّه الكاميرا نحو المستند"
             android:textColor="#FDE047"
-            android:textSize="11.5sp"
-            android:visibility="visible" />
+            android:textSize="11sp"
+            android:visibility="gone" />
 
         <!-- بطاقة عرض نتيجة قراءة QR والباركود محلياً (عرض نصي فقط دون فتح تلقائي) -->
         <LinearLayout
@@ -458,67 +447,48 @@
                 </LinearLayout>
             </HorizontalScrollView>
 
-            <!-- صف التصوير والاستيراد -->
+            <!-- صف التصوير الموحّد (استيراد موحد + زر التقاط بارز + مراجعة) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <Button
-                    android:id="@+id/btn_all_features"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:text="كل المميزات"
-                    android:textColor="#E2E8F0"
-                    android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp"
-                    android:layout_marginEnd="4dp" />
-
-                <Button
-                    android:id="@+id/btn_import_images"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:text="استيراد صور"
-                    android:textColor="#5EEAD4"
-                    android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp"
-                    android:layout_marginEnd="6dp" />
-
-                <Button
-                    android:id="@+id/btn_capture_page"
-                    android:layout_width="58dp"
-                    android:layout_height="58dp"
-                    android:text="التقاط"
-                    android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_scanner_shutter"
-                    android:textSize="10.5sp"
-                    android:textStyle="bold" />
+                android:gravity="center_vertical"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp">
 
                 <Button
                     android:id="@+id/btn_import_files"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="44dp"
                     android:layout_weight="1"
-                    android:text="استيراد ملفات"
-                    android:textColor="#FDE047"
+                    android:text="استيراد صور / PDF"
+                    android:textColor="#5EEAD4"
                     android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp"
-                    android:layout_marginStart="6dp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:layout_marginEnd="10dp" />
+
+                <Button
+                    android:id="@+id/btn_capture_page"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:text="التقاط"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_scanner_shutter"
+                    android:textSize="11.5sp"
+                    android:textStyle="bold" />
 
                 <Button
                     android:id="@+id/btn_open_review"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="44dp"
                     android:layout_weight="1"
-                    android:text="التالي (0)"
+                    android:text="المراجعة (0)"
                     android:textColor="#09183B"
                     android:background="@drawable/bg_share_button"
-                    android:textSize="10.5sp"
-                    android:textStyle="bold" />
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:layout_marginStart="10dp" />
             </LinearLayout>
         </LinearLayout>
 
@@ -541,7 +511,7 @@
                     android:layout_width="0dp"
                     android:layout_height="38dp"
                     android:layout_weight="1"
-                    android:text="اكتشاف تلقائي"
+                    android:text="تحديد تلقائي"
                     android:textColor="#5EEAD4"
                     android:background="@drawable/bg_scanner_pill_dark"
                     android:textSize="11.5sp"
@@ -579,7 +549,7 @@
                     android:layout_width="0dp"
                     android:layout_height="42dp"
                     android:layout_weight="2"
-                    android:text="تطبيق القص والمنظور"
+                    android:text="اعتماد القص والمعاينة"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_card_teal"
                     android:textSize="12.5sp"
@@ -841,7 +811,7 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <!-- تنقل وترتيب الصفحات -->
+            <!-- الصف الأساسي 1: تنقل ومعاينة وحذف -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -852,70 +822,48 @@
                 <Button
                     android:id="@+id/btn_prev_page"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="36dp"
                     android:layout_weight="1"
-                    android:text="السابقة"
+                    android:text="السابق"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="11sp"
+                    android:layout_marginEnd="5dp" />
 
                 <Button
                     android:id="@+id/btn_next_page"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
+                    android:layout_height="36dp"
                     android:layout_weight="1"
-                    android:text="التالية"
+                    android:text="التالي"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
-
-                <Button
-                    android:id="@+id/btn_move_prev"
-                    android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_weight="0.85"
-                    android:text="تقديم"
-                    android:textColor="#FDE047"
-                    android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp"
-                    android:layout_marginEnd="4dp" />
-
-                <Button
-                    android:id="@+id/btn_move_next"
-                    android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_weight="0.85"
-                    android:text="تأخير"
-                    android:textColor="#FDE047"
-                    android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="11sp"
+                    android:layout_marginEnd="5dp" />
 
                 <Button
                     android:id="@+id/btn_full_preview"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_weight="0.95"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
                     android:text="معاينة"
                     android:textColor="#5EEAD4"
                     android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="11sp"
+                    android:layout_marginEnd="5dp" />
 
                 <Button
                     android:id="@+id/btn_delete_page"
                     android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_weight="0.8"
+                    android:layout_height="36dp"
+                    android:layout_weight="0.9"
                     android:text="حذف"
                     android:textColor="#FCA5A5"
                     android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp" />
+                    android:textSize="11sp" />
             </LinearLayout>
 
-            <!-- شريط الإجراءات الرئيسية النظيف -->
+            <!-- الصف الأساسي 2: قص + تدوير + أدوات إضافية + إضافة صفحة -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -925,60 +873,50 @@
                 <Button
                     android:id="@+id/btn_manual_crop"
                     android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
+                    android:layout_height="38dp"
+                    android:layout_weight="0.9"
                     android:text="قص"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
+                    android:textSize="11sp"
+                    android:layout_marginEnd="5dp" />
 
                 <Button
                     android:id="@+id/btn_rotate_right_90"
                     android:layout_width="0dp"
-                    android:layout_height="36dp"
+                    android:layout_height="38dp"
                     android:layout_weight="1"
                     android:text="تدوير 90°"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp"
-                    android:layout_marginEnd="4dp" />
-
-                <Button
-                    android:id="@+id/btn_open_signature"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:text="توقيع"
-                    android:textColor="#5EEAD4"
-                    android:background="@drawable/bg_scanner_pill_dark"
                     android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
-
-                <Button
-                    android:id="@+id/btn_open_timestamp"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1.15"
-                    android:text="طابع زمني"
-                    android:textColor="#FDE047"
-                    android:background="@drawable/bg_scanner_pill_dark"
-                    android:textSize="10sp"
-                    android:layout_marginEnd="4dp" />
+                    android:layout_marginEnd="5dp" />
 
                 <Button
                     android:id="@+id/btn_toggle_edit_tools"
                     android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1.15"
-                    android:text="التحسين ▲"
+                    android:layout_height="38dp"
+                    android:layout_weight="1.25"
+                    android:text="أدوات إضافية ▲"
                     android:textColor="#5EEAD4"
                     android:background="@drawable/bg_scanner_pill_active"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold"
+                    android:layout_marginEnd="5dp" />
+
+                <Button
+                    android:id="@+id/btn_add_more_pages"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="0.95"
+                    android:text="+ صفحة"
+                    android:textColor="#5EEAD4"
+                    android:background="@drawable/bg_scanner_pill_dark"
                     android:textSize="10.5sp"
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- درج التحسين والإضافة (مطوي افتراضياً لتجنب ازدحام الواجهة) -->
+            <!-- درج الأدوات الإضافية (الفلاتر، الإضاءة، التوقيع، الطابع الزمني، الترتيب، إعادة التصوير) -->
             <LinearLayout
                 android:id="@+id/layout_edit_tools_drawer"
                 android:layout_width="match_parent"
@@ -989,7 +927,7 @@
                 android:layout_marginBottom="6dp"
                 android:visibility="gone">
 
-                <!-- الفلاتر الأربعة -->
+                <!-- الفلاتر الأربعة الواضحة دون تداخل -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -997,51 +935,93 @@
                     android:layout_marginBottom="6dp">
 
                     <Button
-                        android:id="@+id/btn_filter_color"
+                        android:id="@+id/btn_filter_original"
                         android:layout_width="0dp"
-                        android:layout_height="32dp"
-                        android:layout_weight="1.1"
-                        android:text="أصلي محسّن"
+                        android:layout_height="34dp"
+                        android:layout_weight="0.9"
+                        android:text="الأصل"
                         android:textColor="#09183B"
                         android:background="@drawable/bg_share_button"
-                        android:textSize="9.5sp"
+                        android:textSize="10sp"
                         android:textStyle="bold"
                         android:layout_marginEnd="4dp" />
 
                     <Button
-                        android:id="@+id/btn_filter_natural"
+                        android:id="@+id/btn_filter_color"
                         android:layout_width="0dp"
-                        android:layout_height="32dp"
-                        android:layout_weight="0.9"
-                        android:text="طبيعي"
+                        android:layout_height="34dp"
+                        android:layout_weight="1.05"
+                        android:text="تحسين ذكي"
                         android:textColor="#FFFFFF"
                         android:background="@drawable/bg_scanner_pill_dark"
-                        android:textSize="9.5sp"
+                        android:textSize="10sp"
                         android:layout_marginEnd="4dp" />
 
                     <Button
                         android:id="@+id/btn_filter_gray"
                         android:layout_width="0dp"
-                        android:layout_height="32dp"
+                        android:layout_height="34dp"
                         android:layout_weight="0.9"
                         android:text="رمادي"
                         android:textColor="#FFFFFF"
                         android:background="@drawable/bg_scanner_pill_dark"
-                        android:textSize="9.5sp"
+                        android:textSize="10sp"
                         android:layout_marginEnd="4dp" />
 
                     <Button
                         android:id="@+id/btn_filter_bw"
                         android:layout_width="0dp"
-                        android:layout_height="32dp"
-                        android:layout_weight="1.1"
+                        android:layout_height="34dp"
+                        android:layout_weight="1.15"
                         android:text="أبيض وأسود"
                         android:textColor="#FFFFFF"
                         android:background="@drawable/bg_scanner_pill_dark"
-                        android:textSize="9.5sp" />
+                        android:textSize="10sp" />
                 </LinearLayout>
 
-                <!-- الإضاءة وإضافة صفحات -->
+                <!-- الإضاءة -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+
+                    <Button
+                        android:id="@+id/btn_brightness_down"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:text="إضاءة -"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="10sp"
+                        android:layout_marginEnd="6dp" />
+
+                    <TextView
+                        android:id="@+id/tv_brightness_value"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="0.8"
+                        android:gravity="center"
+                        android:text="تلقائي"
+                        android:textColor="#5EEAD4"
+                        android:textSize="10.5sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btn_brightness_up"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:text="إضاءة +"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="10sp"
+                        android:layout_marginStart="6dp" />
+                </LinearLayout>
+
+                <!-- التوقيع والطابع الزمني والترتيب والإعادة -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -1049,58 +1029,58 @@
                     android:gravity="center_vertical">
 
                     <Button
-                        android:id="@+id/btn_brightness_down"
+                        android:id="@+id/btn_open_signature"
                         android:layout_width="0dp"
-                        android:layout_height="32dp"
-                        android:layout_weight="0.9"
-                        android:text="إضاءة -"
-                        android:textColor="#FFFFFF"
-                        android:background="@drawable/bg_scanner_pill_dark"
-                        android:textSize="9.5sp"
-                        android:layout_marginEnd="3dp" />
-
-                    <TextView
-                        android:id="@+id/tv_brightness_value"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="0.7"
-                        android:gravity="center"
-                        android:text="تلقائي"
+                        android:layout_height="34dp"
+                        android:layout_weight="1"
+                        android:text="التوقيع"
                         android:textColor="#5EEAD4"
-                        android:textSize="9.5sp" />
-
-                    <Button
-                        android:id="@+id/btn_brightness_up"
-                        android:layout_width="0dp"
-                        android:layout_height="32dp"
-                        android:layout_weight="0.9"
-                        android:text="إضاءة +"
-                        android:textColor="#FFFFFF"
                         android:background="@drawable/bg_scanner_pill_dark"
-                        android:textSize="9.5sp"
-                        android:layout_marginStart="3dp"
+                        android:textSize="10sp"
                         android:layout_marginEnd="4dp" />
 
                     <Button
-                        android:id="@+id/btn_add_more_pages"
+                        android:id="@+id/btn_open_timestamp"
                         android:layout_width="0dp"
-                        android:layout_height="32dp"
-                        android:layout_weight="1"
-                        android:text="+ كاميرا"
-                        android:textColor="#5EEAD4"
+                        android:layout_height="34dp"
+                        android:layout_weight="1.15"
+                        android:text="طابع زمني"
+                        android:textColor="#FDE047"
                         android:background="@drawable/bg_scanner_pill_dark"
-                        android:textSize="9.5sp"
+                        android:textSize="10sp"
+                        android:layout_marginEnd="4dp" />
+
+                    <Button
+                        android:id="@+id/btn_move_prev"
+                        android:layout_width="0dp"
+                        android:layout_height="34dp"
+                        android:layout_weight="0.85"
+                        android:text="تقديم"
+                        android:textColor="#FDE047"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="10sp"
+                        android:layout_marginEnd="4dp" />
+
+                    <Button
+                        android:id="@+id/btn_move_next"
+                        android:layout_width="0dp"
+                        android:layout_height="34dp"
+                        android:layout_weight="0.85"
+                        android:text="تأخير"
+                        android:textColor="#FDE047"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="10sp"
                         android:layout_marginEnd="4dp" />
 
                     <Button
                         android:id="@+id/btn_retake_page"
                         android:layout_width="0dp"
-                        android:layout_height="32dp"
-                        android:layout_weight="0.9"
+                        android:layout_height="34dp"
+                        android:layout_weight="0.85"
                         android:text="إعادة"
-                        android:textColor="#FDE047"
+                        android:textColor="#FCA5A5"
                         android:background="@drawable/bg_scanner_pill_dark"
-                        android:textSize="9.5sp" />
+                        android:textSize="10sp" />
                 </LinearLayout>
             </LinearLayout>
 

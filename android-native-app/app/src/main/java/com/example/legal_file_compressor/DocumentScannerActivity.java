@@ -72,9 +72,9 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
     private static final String PREFS_NAME = "daghta_scanner_prefs";
     private static final String PREF_AUTO_CAPTURE = "auto_capture";
-    private static final String PREF_DEFAULT_FILTER = "default_filter";
+    private static final String PREF_DEFAULT_FILTER_V2 = "default_filter_v2";
     private static final String PREF_DEFAULT_HD = "default_hd";
-    private static final String PREF_CROP_ON_MISS = "crop_on_miss";
+    private static final String PREF_CONFIRM_CROP = "confirm_crop_preview";
 
     private static final int STRICT_500KB = 500 * 1024;
     private static final int SAFE_TARGET_BYTES = 485 * 1024;
@@ -82,7 +82,6 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     private static final int MAX_DIM_HD = 2200;
 
     private static final int REQ_CAMERA_PERM = 301;
-    private static final int REQ_IMPORT_IMAGES = 302;
     private static final int REQ_IMPORT_FILES = 303;
 
     private static final int STEP_CAPTURE = 0;
@@ -93,10 +92,6 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     private static final int STEP_SIGN_PLACE = 5;
     private static final int STEP_TIMESTAMP = 6;
 
-    private static final int TS_CORNER_BR = 0;
-    private static final int TS_CORNER_BL = 1;
-    private static final int TS_CORNER_TR = 2;
-
     private static class ScannedPage {
         File originalTempFile;
         File processedTempFile;
@@ -104,7 +99,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         float[] corners = DocumentScannerEngine.defaultGuideCorners();
         boolean autoDetected = false;
         int rotationDeg = 0;
-        int filterMode = DocumentScannerEngine.FILTER_ORIGINAL_COLOR;
+        int filterMode = DocumentScannerEngine.FILTER_ORIGINAL;
         int brightnessAdjust = 0;
         int scanMode = DocumentScannerEngine.SCAN_MODE_SINGLE;
     }
@@ -132,10 +127,13 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     private Button btnQrCopy;
     private Button btnQrRescan;
 
+    private static final int TS_CORNER_BR = 0;
+    private static final int TS_CORNER_BL = 1;
+    private static final int TS_CORNER_TR = 2;
+
     private Button btnBack;
     private Button btnFlashToggle;
     private Button btnHdToggle;
-    private Button btnHelpGuide;
     private Button btnMoreSettings;
 
     private View layoutCameraControls;
@@ -155,8 +153,6 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     private Button btnModeBook;
     private Button btnModeIdCard;
     private Button btnModeQr;
-    private Button btnAllFeatures;
-    private Button btnImportImages;
     private Button btnCapture;
     private Button btnImportFiles;
     private Button btnOpenReview;
@@ -195,8 +191,8 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     private Button btnOpenSignature;
     private Button btnOpenTimestamp;
     private Button btnToggleEditTools;
+    private Button btnFilterOriginal;
     private Button btnFilterColor;
-    private Button btnFilterNatural;
     private Button btnFilterGray;
     private Button btnFilterBw;
     private Button btnBrightnessDown;
@@ -220,9 +216,10 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
     private SharedPreferences prefs;
     private boolean autoCaptureEnabled = true;
-    private int defaultFilterMode = DocumentScannerEngine.FILTER_ORIGINAL_COLOR;
+    private int defaultFilterMode = DocumentScannerEngine.FILTER_ORIGINAL;
     private boolean isHdEnabled = false;
-    private boolean promptCropOnMiss = true;
+    private boolean confirmCropPreview = true;
+    private boolean isPendingCaptureCrop = false;
 
     private int activeScanMode = DocumentScannerEngine.SCAN_MODE_SINGLE;
     private boolean isFlashOn = false;
@@ -272,9 +269,9 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         autoCaptureEnabled = prefs.getBoolean(PREF_AUTO_CAPTURE, true);
-        defaultFilterMode = prefs.getInt(PREF_DEFAULT_FILTER, DocumentScannerEngine.FILTER_ORIGINAL_COLOR);
+        defaultFilterMode = prefs.getInt(PREF_DEFAULT_FILTER_V2, DocumentScannerEngine.FILTER_ORIGINAL);
         isHdEnabled = prefs.getBoolean(PREF_DEFAULT_HD, false);
-        promptCropOnMiss = prefs.getBoolean(PREF_CROP_ON_MISS, true);
+        confirmCropPreview = prefs.getBoolean(PREF_CONFIRM_CROP, true);
 
         bindViews();
         wireListeners();
@@ -310,7 +307,6 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         btnBack = (Button) findViewById(R.id.btn_scanner_back);
         btnFlashToggle = (Button) findViewById(R.id.btn_flash_toggle);
         btnHdToggle = (Button) findViewById(R.id.btn_hd_toggle);
-        btnHelpGuide = (Button) findViewById(R.id.btn_help_guide);
         btnMoreSettings = (Button) findViewById(R.id.btn_more_settings);
 
         layoutCameraControls = findViewById(R.id.layout_camera_controls);
@@ -330,8 +326,6 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         btnModeBook = (Button) findViewById(R.id.btn_mode_book);
         btnModeIdCard = (Button) findViewById(R.id.btn_mode_id_card);
         btnModeQr = (Button) findViewById(R.id.btn_mode_qr);
-        btnAllFeatures = (Button) findViewById(R.id.btn_all_features);
-        btnImportImages = (Button) findViewById(R.id.btn_import_images);
         btnCapture = (Button) findViewById(R.id.btn_capture_page);
         btnImportFiles = (Button) findViewById(R.id.btn_import_files);
         btnOpenReview = (Button) findViewById(R.id.btn_open_review);
@@ -370,8 +364,8 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         btnOpenSignature = (Button) findViewById(R.id.btn_open_signature);
         btnOpenTimestamp = (Button) findViewById(R.id.btn_open_timestamp);
         btnToggleEditTools = (Button) findViewById(R.id.btn_toggle_edit_tools);
+        btnFilterOriginal = (Button) findViewById(R.id.btn_filter_original);
         btnFilterColor = (Button) findViewById(R.id.btn_filter_color);
-        btnFilterNatural = (Button) findViewById(R.id.btn_filter_natural);
         btnFilterGray = (Button) findViewById(R.id.btn_filter_gray);
         btnFilterBw = (Button) findViewById(R.id.btn_filter_bw);
         btnBrightnessDown = (Button) findViewById(R.id.btn_brightness_down);
@@ -416,17 +410,11 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
             @Override
             public void onClick(View v) {
                 isHdEnabled = !isHdEnabled;
+                prefs.edit().putBoolean(PREF_DEFAULT_HD, isHdEnabled).apply();
                 updateHdUi();
                 Toast.makeText(DocumentScannerActivity.this,
                     isHdEnabled ? "تم تفعيل جودة HD للدقة العالية" : "وضع الجودة المتوازنة السريعة",
                     Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        btnHelpGuide.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showHelpDialog();
             }
         });
 
@@ -465,20 +453,6 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
             @Override
             public void onClick(View v) {
                 selectCameraMode(DocumentScannerEngine.SCAN_MODE_QR);
-            }
-        });
-
-        btnAllFeatures.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showAllFeaturesDialog();
-            }
-        });
-
-        btnImportImages.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openGalleryImagePicker();
             }
         });
 
@@ -577,7 +551,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         btnManualCrop.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                openManualCrop(selectedIndex);
+                openManualCrop(selectedIndex, false);
             }
         });
 
@@ -607,20 +581,20 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
             public void onClick(View v) {
                 showEditDrawer = !showEditDrawer;
                 layoutEditToolsDrawer.setVisibility(showEditDrawer ? View.VISIBLE : View.GONE);
-                btnToggleEditTools.setText(showEditDrawer ? "إخفاء ▼" : "التحسين ▲");
+                btnToggleEditTools.setText(showEditDrawer ? "إخفاء الأدوات ▼" : "أدوات إضافية ▲");
             }
         });
 
+        btnFilterOriginal.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                changeCurrentFilterMode(DocumentScannerEngine.FILTER_ORIGINAL);
+            }
+        });
         btnFilterColor.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 changeCurrentFilterMode(DocumentScannerEngine.FILTER_ORIGINAL_COLOR);
-            }
-        });
-        btnFilterNatural.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeCurrentFilterMode(DocumentScannerEngine.FILTER_NATURAL);
             }
         });
         btnFilterGray.setOnClickListener(new View.OnClickListener() {
@@ -689,7 +663,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         btnCropCancel.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                closeCropScreenToReview();
+                cancelCropScreen();
             }
         });
         btnCropApply.setOnClickListener(new View.OnClickListener() {
@@ -866,7 +840,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
     private void handleBackNavigation() {
         if (currentStep == STEP_CROP) {
-            closeCropScreenToReview();
+            cancelCropScreen();
         } else if (currentStep == STEP_SIGN_DRAW || currentStep == STEP_SIGN_PLACE) {
             releaseSignatureTempBitmaps();
             switchToReview();
@@ -1403,8 +1377,9 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                                     : (captureMode == DocumentScannerEngine.SCAN_MODE_ID_CARD
                                         ? DocumentScannerEngine.defaultIdCardCorners()
                                         : DocumentScannerEngine.fullFrameCorners());
-                                final int initialFilter = (captureMode == DocumentScannerEngine.SCAN_MODE_ID_CARD)
-                                    ? DocumentScannerEngine.FILTER_NATURAL
+                                final int initialFilter = (captureMode == DocumentScannerEngine.SCAN_MODE_ID_CARD
+                                    && defaultFilterMode == DocumentScannerEngine.FILTER_BLACK_WHITE)
+                                    ? DocumentScannerEngine.FILTER_ORIGINAL
                                     : defaultFilterMode;
 
                                 final ScannedPage processed = processOriginalFile(
@@ -1430,8 +1405,8 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                                             selectedIndex = retakeIndex;
                                             retakeIndex = -1;
                                             isCapturing = false;
-                                            if (!detectedOnCapture && promptCropOnMiss) {
-                                                openManualCrop(selectedIndex);
+                                            if (confirmCropPreview || !detectedOnCapture) {
+                                                openManualCrop(selectedIndex, false);
                                             } else {
                                                 switchToReview();
                                             }
@@ -1450,15 +1425,15 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                                             if (currentStep == STEP_CAPTURE && camera != null) {
                                                 try { camera.startPreview(); } catch (Exception ignored) {}
                                             }
+                                        } else if (confirmCropPreview || !detectedOnCapture) {
+                                            Toast.makeText(DocumentScannerActivity.this,
+                                                detectedOnCapture
+                                                    ? "تحقق من حدود الورقة أو اضبطها قبل الاعتماد"
+                                                    : "اسحب الزوايا لتحديد حدود الورقة بالعدسة المكبرة",
+                                                Toast.LENGTH_SHORT).show();
+                                            openManualCrop(selectedIndex, true);
                                         } else {
-                                            if (!detectedOnCapture && promptCropOnMiss) {
-                                                Toast.makeText(DocumentScannerActivity.this,
-                                                    "اضبط حدود القص بالعدسة المكبرة",
-                                                    Toast.LENGTH_SHORT).show();
-                                                openManualCrop(selectedIndex);
-                                            } else {
-                                                switchToReview();
-                                            }
+                                            switchToReview();
                                         }
                                     }
                                 });
@@ -1489,41 +1464,26 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         }
     }
 
-    // ==================== استيراد الصور (فردية/متعددة) واستيراد الملفات (PDF/صور) ====================
-    private void openGalleryImagePicker() {
-        if (isBusyProcessing) return;
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("image/*");
-        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivityForResult(intent, REQ_IMPORT_IMAGES);
-        } catch (Exception e) {
-            Toast.makeText(this, "تعذر فتح معرض الصور", Toast.LENGTH_SHORT).show();
-        }
-    }
-
+    // ==================== استيراد الصور وملفات PDF عبر منتقٍ موحد ====================
     private void openDocumentFilePicker() {
         if (isBusyProcessing) return;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{ "application/pdf", "image/*" });
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{ "image/*", "application/pdf" });
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
             startActivityForResult(intent, REQ_IMPORT_FILES);
         } catch (Exception e) {
-            Toast.makeText(this, "تعذر فتح مدير الملفات", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "تعذر فتح منتقي الصور والملفات", Toast.LENGTH_SHORT).show();
         }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if ((requestCode == REQ_IMPORT_IMAGES || requestCode == REQ_IMPORT_FILES) &&
-            resultCode == RESULT_OK && data != null) {
+        if (requestCode == REQ_IMPORT_FILES && resultCode == RESULT_OK && data != null) {
             final List<Uri> uris = new ArrayList<Uri>();
             ClipData clip = data.getClipData();
             if (clip != null) {
@@ -1542,7 +1502,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
     private void importSelectedUris(final List<Uri> uris) {
         isBusyProcessing = true;
-        Toast.makeText(this, "جارٍ استيراد وتحسين الملفات المختارة...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "جارٍ استيراد وتجهيز الملفات المختارة...", Toast.LENGTH_SHORT).show();
         final int workDim = isHdEnabled ? MAX_DIM_HD : MAX_DIM_STANDARD;
         final int modeHint = (activeScanMode == DocumentScannerEngine.SCAN_MODE_QR)
             ? DocumentScannerEngine.SCAN_MODE_SINGLE
@@ -1600,8 +1560,9 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                             float[] corners = det.detected
                                 ? det.corners
                                 : DocumentScannerEngine.fullFrameCorners();
-                            int filter = (modeHint == DocumentScannerEngine.SCAN_MODE_ID_CARD)
-                                ? DocumentScannerEngine.FILTER_NATURAL
+                            int filter = (modeHint == DocumentScannerEngine.SCAN_MODE_ID_CARD
+                                && defaultFilterMode == DocumentScannerEngine.FILTER_BLACK_WHITE)
+                                ? DocumentScannerEngine.FILTER_ORIGINAL
                                 : defaultFilterMode;
                             ScannedPage p = processOriginalFile(
                                 orig, corners, det.detected, 0, filter, 0, modeHint, workDim);
@@ -1633,9 +1594,15 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                             lastSavedKind = null;
                             lastSavedUri = null;
                             updateCaptureCounter();
-                            Toast.makeText(DocumentScannerActivity.this,
-                                "✓ تم استيراد " + imported.size() + " صفحة بالترتيب", Toast.LENGTH_SHORT).show();
-                            switchToReview();
+                            if (imported.size() == 1 && uris.size() == 1 && confirmCropPreview) {
+                                Toast.makeText(DocumentScannerActivity.this,
+                                    "تحقق من حدود القص قبل المراجعة", Toast.LENGTH_SHORT).show();
+                                openManualCrop(selectedIndex, true);
+                            } else {
+                                Toast.makeText(DocumentScannerActivity.this,
+                                    "✓ تم استيراد " + imported.size() + " صفحة بالترتيب", Toast.LENGTH_SHORT).show();
+                                switchToReview();
+                            }
                         }
                         if (!skipped.isEmpty()) {
                             Toast.makeText(DocumentScannerActivity.this,
@@ -1708,7 +1675,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                     DocumentScannerEngine.fullFrameCorners(),
                     true,
                     0,
-                    DocumentScannerEngine.FILTER_NATURAL,
+                    DocumentScannerEngine.FILTER_ORIGINAL,
                     0,
                     DocumentScannerEngine.SCAN_MODE_SINGLE,
                     targetDim
@@ -1861,17 +1828,20 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     }
 
     // ==================== القص اليدوي وعدسة التكبير ====================
-    private void openManualCrop(int index) {
+    private void openManualCrop(int index, boolean pendingCaptureReview) {
         if (index < 0 || index >= pages.size() || workerExecutor.isShutdown()) return;
         selectedIndex = index;
+        isPendingCaptureCrop = pendingCaptureReview;
         final ScannedPage page = pages.get(index);
         currentStep = STEP_CROP;
         releaseCamera();
         hideAllStageViews();
         hideAllBottomPanels();
 
+        btnFlashToggle.setVisibility(View.GONE);
         cropOverlayView.setVisibility(View.VISIBLE);
         layoutCropControls.setVisibility(View.VISIBLE);
+        btnBack.setText(pendingCaptureReview ? "إلغاء" : "رجوع");
         tvTitle.setText("تحديد الحدود — اسحب الزوايا للتكبير الدقيق");
 
         workerExecutor.execute(new Runnable() {
@@ -1898,6 +1868,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                         @Override
                         public void run() {
                             if (!isActivityUnavailable()) {
+                                isPendingCaptureCrop = false;
                                 Toast.makeText(DocumentScannerActivity.this, "تعذر فتح محرر القص", Toast.LENGTH_SHORT).show();
                                 switchToReview();
                             }
@@ -1924,10 +1895,16 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
     private void applyManualCropCorners() {
         if (selectedIndex < 0 || selectedIndex >= pages.size() || workerExecutor.isShutdown() || isBusyProcessing) return;
+        final ScannedPage page = pages.get(selectedIndex);
+        final float[] editedCorners = cropOverlayView.getCorners();
+        if (!DocumentScannerEngine.isLogicalUserCrop(editedCorners, page.scanMode)) {
+            Toast.makeText(this,
+                "منطقة القص غير منطقية أو ضيقة جداً — حدد المستند كاملاً قبل المتابعة",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
         isBusyProcessing = true;
         final int targetIdx = selectedIndex;
-        final ScannedPage page = pages.get(targetIdx);
-        final float[] editedCorners = cropOverlayView.getCorners();
         final int workDim = isHdEnabled ? MAX_DIM_HD : MAX_DIM_STANDARD;
 
         workerExecutor.execute(new Runnable() {
@@ -1948,8 +1925,9 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
                             pages.set(targetIdx, updated);
                             lastSavedKind = null;
                             lastSavedUri = null;
+                            isPendingCaptureCrop = false;
                             closeCropScreenToReview();
-                            Toast.makeText(DocumentScannerActivity.this, "✓ تم تطبيق القص وتصحيح المنظور", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(DocumentScannerActivity.this, "✓ تم اعتماد القص والمعاينة", Toast.LENGTH_SHORT).show();
                         }
                     });
                 } catch (Exception e) {
@@ -1967,7 +1945,27 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         });
     }
 
+    private void cancelCropScreen() {
+        boolean wasPendingCapture = isPendingCaptureCrop;
+        isPendingCaptureCrop = false;
+        cropOverlayView.setImageAndCorners(null, null);
+        if (cropEditingBitmap != null && !cropEditingBitmap.isRecycled()) {
+            cropEditingBitmap.recycle();
+            cropEditingBitmap = null;
+        }
+        if (wasPendingCapture && selectedIndex >= 0 && selectedIndex < pages.size()) {
+            ScannedPage discarded = pages.remove(selectedIndex);
+            deletePageTempFiles(discarded);
+            selectedIndex = Math.max(0, Math.min(selectedIndex, pages.size() - 1));
+            updateCaptureCounter();
+            switchToCapture();
+            return;
+        }
+        switchToReview();
+    }
+
     private void closeCropScreenToReview() {
+        isPendingCaptureCrop = false;
         cropOverlayView.setImageAndCorners(null, null);
         if (cropEditingBitmap != null && !cropEditingBitmap.isRecycled()) {
             cropEditingBitmap.recycle();
@@ -1984,6 +1982,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         hideAllStageViews();
         hideAllBottomPanels();
 
+        btnFlashToggle.setVisibility(View.GONE);
         signaturePadPanel.setVisibility(View.VISIBLE);
         layoutSigDrawControls.setVisibility(View.VISIBLE);
         tvTitle.setText("رسم التوقيع الإلكتروني");
@@ -2132,6 +2131,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         releaseCamera();
         hideAllStageViews();
         hideAllBottomPanels();
+        btnFlashToggle.setVisibility(View.GONE);
         ivPreview.setVisibility(View.VISIBLE);
         layoutTimestampControls.setVisibility(View.VISIBLE);
         tvTitle.setText("معاينة الطابع الزمني قبل تطبيقه");
@@ -2392,6 +2392,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         hideAllStageViews();
         hideAllBottomPanels();
 
+        btnFlashToggle.setVisibility(View.VISIBLE);
         surfaceView.setVisibility(View.VISIBLE);
         scannerOverlayView.setVisibility(View.VISIBLE);
         scannerOverlayView.setScanMode(activeScanMode);
@@ -2416,6 +2417,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         hideAllStageViews();
         hideAllBottomPanels();
 
+        btnFlashToggle.setVisibility(View.GONE);
         ivPreview.setVisibility(View.VISIBLE);
         layoutReviewControls.setVisibility(View.VISIBLE);
         btnBack.setText("رجوع");
@@ -2424,11 +2426,22 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
 
     private void switchToExport() {
         if (pages.isEmpty()) return;
+        for (int i = 0; i < pages.size(); i++) {
+            ScannedPage p = pages.get(i);
+            if (!DocumentScannerEngine.isLogicalUserCrop(p.corners, p.scanMode)) {
+                Toast.makeText(this,
+                    "الصفحة رقم " + (i + 1) + " تحتوي على قص غير مكتمل أو ضيق جداً — اضبط الحدود أولاً",
+                    Toast.LENGTH_LONG).show();
+                openManualCrop(i, false);
+                return;
+            }
+        }
         currentStep = STEP_EXPORT;
         releaseCamera();
         hideAllStageViews();
         hideAllBottomPanels();
 
+        btnFlashToggle.setVisibility(View.GONE);
         scrollExportStage.setVisibility(View.VISIBLE);
         layoutExportFooter.setVisibility(View.VISIBLE);
         btnBack.setText("رجوع");
@@ -2457,7 +2470,7 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     }
 
     private void updateCaptureCounter() {
-        btnOpenReview.setText("التالي (" + pages.size() + ")");
+        btnOpenReview.setText("المراجعة (" + pages.size() + ")");
         btnOpenReview.setEnabled(!pages.isEmpty());
     }
 
@@ -2490,8 +2503,10 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     }
 
     private void updateFilterButtonStyles(int mode) {
-        styleFilterChip(btnFilterColor, mode == DocumentScannerEngine.FILTER_ORIGINAL_COLOR, "أصلي محسّن");
-        styleFilterChip(btnFilterNatural, mode == DocumentScannerEngine.FILTER_NATURAL, "طبيعي");
+        styleFilterChip(btnFilterOriginal,
+            mode == DocumentScannerEngine.FILTER_ORIGINAL || mode == DocumentScannerEngine.FILTER_NATURAL,
+            "الأصل");
+        styleFilterChip(btnFilterColor, mode == DocumentScannerEngine.FILTER_ORIGINAL_COLOR, "تحسين ذكي");
         styleFilterChip(btnFilterGray, mode == DocumentScannerEngine.FILTER_GRAYSCALE, "رمادي");
         styleFilterChip(btnFilterBw, mode == DocumentScannerEngine.FILTER_BLACK_WHITE, "أبيض وأسود");
     }
@@ -2502,60 +2517,13 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         b.setText(active ? (label + " ✓") : label);
     }
 
-    // ==================== قائمة كل المميزات (المعتمدة فقط) + المساعدة + الإعدادات ====================
-    private void showAllFeaturesDialog() {
-        final String[] items = new String[]{
-            "1. مسح مستند فردي",
-            "2. مسح دفعة صفحات متتالية",
-            "3. مسح صفحة كتاب (تصحيح الانحناء)",
-            "4. مسح بطاقات الهوية",
-            "5. قراءة QR والباركود (محلي)",
-            "6. استيراد صور من المعرض",
-            "7. استيراد ملفات PDF وصور",
-            "8. تبديل جودة HD (" + (isHdEnabled ? "مفعّلة" : "متوقفة") + ")",
-            "9. إضافة التوقيع الإلكتروني (من المراجعة)",
-            "10. إضافة الطابع الزمني (من المراجعة)",
-            "11. إعدادات إضافية",
-            "12. المساعدة والإرشادات"
-        };
-
-        new AlertDialog.Builder(this)
-            .setTitle("كل مميزات السكانر")
-            .setItems(items, new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    switch (which) {
-                        case 0: selectCameraMode(DocumentScannerEngine.SCAN_MODE_SINGLE); break;
-                        case 1: selectCameraMode(DocumentScannerEngine.SCAN_MODE_BATCH); break;
-                        case 2: selectCameraMode(DocumentScannerEngine.SCAN_MODE_BOOK); break;
-                        case 3: selectCameraMode(DocumentScannerEngine.SCAN_MODE_ID_CARD); break;
-                        case 4: selectCameraMode(DocumentScannerEngine.SCAN_MODE_QR); break;
-                        case 5: openGalleryImagePicker(); break;
-                        case 6: openDocumentFilePicker(); break;
-                        case 7: btnHdToggle.performClick(); break;
-                        case 8:
-                            if (pages.isEmpty()) Toast.makeText(DocumentScannerActivity.this, "التقط أو استورد صفحة أولاً ثم أضف التوقيع", Toast.LENGTH_SHORT).show();
-                            else openSignatureDrawStep();
-                            break;
-                        case 9:
-                            if (pages.isEmpty()) Toast.makeText(DocumentScannerActivity.this, "التقط أو استورد صفحة أولاً ثم أضف الطابع الزمني", Toast.LENGTH_SHORT).show();
-                            else openTimestampPreviewStep();
-                            break;
-                        case 10: showSettingsDialog(); break;
-                        case 11: showHelpDialog(); break;
-                    }
-                }
-            })
-            .setNegativeButton("إغلاق", null)
-            .show();
-    }
-
+    // ==================== المساعدة + الإعدادات (نظيفة وموحدة دون تكرار) ====================
     private void showHelpDialog() {
         String guide =
-            "• التصوير والقص: وجّه الكاميرا نحو الورقة أو البطاقة وسيتم تحديد الحدود تلقائياً.\n\n" +
-            "• عدسة التكبير: عند سحب أي زاوية أو ضلع في شاشة القص ستظهر عدسة مكبرة فوق الإصبع لضبط حافة الورقة بدقة وتختفي عند الإفلات.\n\n" +
-            "• الأوضاع المتاحة: فردي، دفعة متتالية، الكتب (صفحة واحدة مع تسطيح خفيف للانحناء)، بطاقات الهوية، وقارئ QR/الباركود أوفلاين.\n\n" +
-            "• التوقيع والطابع الزمني: من شاشة المراجعة يمكنك رسم توقيعك وتحريكه وتكبيره فوق المستند، أو معاينة الطابع الزمني قبل تطبيقه.\n\n" +
+            "• التصوير والقص: وجّه الكاميرا نحو الورقة أو البطاقة وسيتم تحديد الحدود الخارجية تلقائياً، ثم تفتح معاينة القص لتأكيد الزوايا قبل الحفظ.\n\n" +
+            "• عدسة التكبير: عند سحب أي زاوية أو ضلع في شاشة القص ستظهر عدسة مكبرة بموضع بعيد عن الإصبع لضبط حافة الورقة بدقة وتختفي عند الإفلات.\n\n" +
+            "• الأوضاع المتاحة: فردي، دفعة متتالية، الكتب (صفحة واحدة مع تسطيح الانحناء)، بطاقات الهوية، وقارئ QR/الباركود أوفلاين.\n\n" +
+            "• التوقيع والطابع الزمني والفلاتر: من زر «أدوات إضافية» في شاشة المراجعة يمكنك اختيار الأصل أو تحسين ذكي أو رمادي أو أبيض وأسود، وإضافة التوقيع أو الطابع الزمني.\n\n" +
             "• الحفظ: تصدير الصور بالمعرض أو ملف PDF موحد بالتنزيلات بحجم مضغوط يحافظ على وضوح الأختام والنصوص.";
         new AlertDialog.Builder(this)
             .setTitle("المساعدة وإرشادات الاستخدام")
@@ -2574,29 +2542,37 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         cbAuto.setChecked(autoCaptureEnabled);
         box.addView(cbAuto);
 
-        final CheckBox cbHd = new CheckBox(this);
-        cbHd.setText("تفعيل جودة HD افتراضياً عند فتح السكانر");
-        cbHd.setChecked(isHdEnabled);
-        box.addView(cbHd);
-
-        final CheckBox cbCropMiss = new CheckBox(this);
-        cbCropMiss.setText("فتح القص اليدوي تلقائياً إذا لم تتضح حدود الورقة");
-        cbCropMiss.setChecked(promptCropOnMiss);
-        box.addView(cbCropMiss);
+        final CheckBox cbConfirmCrop = new CheckBox(this);
+        cbConfirmCrop.setText("معاينة وتأكيد حدود القص بعد التصوير");
+        cbConfirmCrop.setChecked(confirmCropPreview);
+        box.addView(cbConfirmCrop);
 
         TextView filterLabel = new TextView(this);
         filterLabel.setText("الفلتر الافتراضي عند الالتقاط:");
         filterLabel.setPadding(0, 18, 0, 8);
         box.addView(filterLabel);
 
-        final int[] chosenFilter = new int[]{ defaultFilterMode };
+        final int[] filterOptions = new int[]{
+            DocumentScannerEngine.FILTER_ORIGINAL,
+            DocumentScannerEngine.FILTER_ORIGINAL_COLOR,
+            DocumentScannerEngine.FILTER_GRAYSCALE,
+            DocumentScannerEngine.FILTER_BLACK_WHITE
+        };
+        int startIdx = 0;
+        for (int i = 0; i < filterOptions.length; i++) {
+            if (filterOptions[i] == defaultFilterMode) {
+                startIdx = i;
+                break;
+            }
+        }
+        final int[] chosenIdx = new int[]{ startIdx };
         final Button btnPickFilter = new Button(this);
-        btnPickFilter.setText(filterNameArabic(chosenFilter[0]));
+        btnPickFilter.setText(filterNameArabic(filterOptions[chosenIdx[0]]));
         btnPickFilter.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                chosenFilter[0] = (chosenFilter[0] + 1) % 4;
-                btnPickFilter.setText(filterNameArabic(chosenFilter[0]));
+                chosenIdx[0] = (chosenIdx[0] + 1) % filterOptions.length;
+                btnPickFilter.setText(filterNameArabic(filterOptions[chosenIdx[0]]));
             }
         });
         box.addView(btnPickFilter);
@@ -2604,21 +2580,24 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         new AlertDialog.Builder(this)
             .setTitle("إعدادات السكانر")
             .setView(box)
+            .setNeutralButton("المساعدة والإرشادات", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    showHelpDialog();
+                }
+            })
             .setNegativeButton("إلغاء", null)
             .setPositiveButton("حفظ", new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     autoCaptureEnabled = cbAuto.isChecked();
-                    isHdEnabled = cbHd.isChecked();
-                    promptCropOnMiss = cbCropMiss.isChecked();
-                    defaultFilterMode = chosenFilter[0];
+                    confirmCropPreview = cbConfirmCrop.isChecked();
+                    defaultFilterMode = filterOptions[chosenIdx[0]];
                     prefs.edit()
                         .putBoolean(PREF_AUTO_CAPTURE, autoCaptureEnabled)
-                        .putBoolean(PREF_DEFAULT_HD, isHdEnabled)
-                        .putBoolean(PREF_CROP_ON_MISS, promptCropOnMiss)
-                        .putInt(PREF_DEFAULT_FILTER, defaultFilterMode)
+                        .putBoolean(PREF_CONFIRM_CROP, confirmCropPreview)
+                        .putInt(PREF_DEFAULT_FILTER_V2, defaultFilterMode)
                         .apply();
-                    updateHdUi();
                     updateCameraStatusHint(false, false, false);
                     Toast.makeText(DocumentScannerActivity.this, "✓ تم حفظ إعدادات السكانر", Toast.LENGTH_SHORT).show();
                 }
@@ -2627,10 +2606,12 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
     }
 
     private String filterNameArabic(int f) {
-        if (f == DocumentScannerEngine.FILTER_NATURAL) return "طبيعي (يحفظ الصور والأختام)";
-        if (f == DocumentScannerEngine.FILTER_GRAYSCALE) return "تدرج رمادي";
+        if (f == DocumentScannerEngine.FILTER_ORIGINAL || f == DocumentScannerEngine.FILTER_NATURAL) {
+            return "الأصل (يحفظ الورقة والأختام كما هي)";
+        }
+        if (f == DocumentScannerEngine.FILTER_GRAYSCALE) return "رمادي";
         if (f == DocumentScannerEngine.FILTER_BLACK_WHITE) return "أبيض وأسود";
-        return "ألوان أصلية محسّنة";
+        return "تحسين ذكي (يوضح النص ويحمي الأختام)";
     }
 
     // ==================== المرحلة 3: التصدير والحفظ الآمن من القرص ====================
@@ -2801,11 +2782,13 @@ public class DocumentScannerActivity extends Activity implements SurfaceHolder.C
         cleanupAllTempFiles();
         selectedIndex = 0;
         retakeIndex = -1;
+        isPendingCaptureCrop = false;
         lastSavedKind = null;
         lastSavedUri = null;
         lastSavedMimeType = null;
         showEditDrawer = false;
         layoutEditToolsDrawer.setVisibility(View.GONE);
+        btnToggleEditTools.setText("أدوات إضافية ▲");
         switchToCapture();
     }
 

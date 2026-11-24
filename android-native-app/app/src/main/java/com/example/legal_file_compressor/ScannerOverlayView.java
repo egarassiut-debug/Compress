@@ -149,7 +149,7 @@ public class ScannerOverlayView extends View {
             drawBookSinglePageGuide(canvas, w, h);
         }
 
-        if (corners == null || corners.length < 8) return;
+        if (!detected || corners == null || corners.length < 8) return;
         quadPath.reset();
         quadPath.moveTo(corners[0] * w, corners[1] * h);
         quadPath.lineTo(corners[2] * w, corners[3] * h);
@@ -157,22 +157,14 @@ public class ScannerOverlayView extends View {
         quadPath.lineTo(corners[6] * w, corners[7] * h);
         quadPath.close();
 
-        if (detected) {
-            fillPaint.setColor(stableAndSharp ? Color.argb(40, 74, 222, 128) : Color.argb(32, 45, 212, 191));
-            strokePaint.setColor(stableAndSharp ? Color.parseColor("#4ADE80") : Color.parseColor("#2DD4BF"));
-            canvas.drawPath(quadPath, fillPaint);
-            canvas.drawPath(quadPath, strokePaint);
-        } else if (scanMode != DocumentScannerEngine.SCAN_MODE_ID_CARD) {
-            fillPaint.setColor(Color.argb(14, 245, 158, 11));
-            canvas.drawPath(quadPath, fillPaint);
-            canvas.drawPath(quadPath, dashedPaint);
-        }
+        fillPaint.setColor(stableAndSharp ? Color.argb(40, 74, 222, 128) : Color.argb(32, 45, 212, 191));
+        strokePaint.setColor(stableAndSharp ? Color.parseColor("#4ADE80") : Color.parseColor("#2DD4BF"));
+        canvas.drawPath(quadPath, fillPaint);
+        canvas.drawPath(quadPath, strokePaint);
 
-        if (detected || scanMode != DocumentScannerEngine.SCAN_MODE_ID_CARD) {
-            float dotR = detected ? dp(4.8f) : dp(3.4f);
-            for (int i = 0; i < 4; i++) {
-                canvas.drawCircle(corners[i * 2] * w, corners[i * 2 + 1] * h, dotR, cornerPaint);
-            }
+        float dotR = dp(4.8f);
+        for (int i = 0; i < 4; i++) {
+            canvas.drawCircle(corners[i * 2] * w, corners[i * 2 + 1] * h, dotR, cornerPaint);
         }
     }
 

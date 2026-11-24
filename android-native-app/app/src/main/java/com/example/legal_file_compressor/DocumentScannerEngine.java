@@ -27,10 +27,11 @@ import java.util.List;
  */
 public final class DocumentScannerEngine {
 
-    public static final int FILTER_ORIGINAL_COLOR = 0; // ألوان أصلية محسّنة (الافتراضي)
+    public static final int FILTER_ORIGINAL_COLOR = 0; // تحسين ذكي لطيف يحافظ على الأختام والكتابة الخفيفة
     public static final int FILTER_GRAYSCALE = 1;      // تدرج رمادي متوازن
     public static final int FILTER_BLACK_WHITE = 2;    // أبيض وأسود تكيفي (Sauvola بالشرائح)
     public static final int FILTER_NATURAL = 3;        // طبيعي لطيف (للهويات والأختام الحساسة)
+    public static final int FILTER_ORIGINAL = 4;       // الأصل الكامل دون تعديل ألوان أو تبييض (الافتراضي)
 
     public static final int SCAN_MODE_SINGLE = 0;
     public static final int SCAN_MODE_BATCH = 1;
@@ -93,6 +94,43 @@ public final class DocumentScannerEngine {
     }
 
     /**
+     * التحقق المنطقي من قص المستخدم قبل الاعتماد أو الانتقال للحفظ
+     */
+    public static boolean isLogicalUserCrop(float[] c, int scanMode) {
+        if (!isConvexQuad(c)) return false;
+        float area = quadPolygonArea(c);
+        float minArea = (scanMode == SCAN_MODE_ID_CARD) ? 0.045f : 0.07f;
+        if (area < minArea) return false;
+
+        double topW = Math.hypot(c[2] - c[0], c[3] - c[1]);
+        double botW = Math.hypot(c[4] - c[6], c[5] - c[7]);
+        double leftH = Math.hypot(c[6] - c[0], c[7] - c[1]);
+        double rightH = Math.hypot(c[4] - c[2], c[5] - c[3]);
+        double minSide = Math.min(Math.min(topW, botW), Math.min(leftH, rightH));
+        if (minSide < 0.08) return false;
+
+        double avgW = (topW + botW) * 0.5;
+        double avgH = (leftH + rightH) * 0.5;
+        double aspect = Math.max(avgW, avgH) / Math.max(0.01, Math.min(avgW, avgH));
+        if (aspect > 4.5) return false;
+
+        for (int i = 0; i < 4; i++) {
+            int p = ((i + 3) % 4) * 2;
+            int q = i * 2;
+            int r = ((i + 1) % 4) * 2;
+            double v1x = c[p] - c[q], v1y = c[p + 1] - c[q + 1];
+            double v2x = c[r] - c[q], v2y = c[r + 1] - c[q + 1];
+            double l1 = Math.hypot(v1x, v1y);
+            double l2 = Math.hypot(v2x, v2y);
+            if (l1 < 0.08 || l2 < 0.08) return false;
+            double cosA = (v1x * v2x + v1y * v2y) / (l1 * l2);
+            double deg = Math.toDegrees(Math.acos(Math.max(-1.0, Math.min(1.0, cosA))));
+            if (deg < 28.0 || deg > 152.0) return false;
+        }
+        return true;
+    }
+
+    /**
      * استخراج مصفوفة رمادية مصغرة من إطار NV21 مع مراعاة زاوية العرض
      */
     public static byte[] sampleGrayFromNv21(byte[] nv21, int srcW, int srcH, int displayDeg, int outW, int outH) {
@@ -138,28 +176,40 @@ public final class DocumentScannerEngine {
     }
 
     /**
-     * كشف حدود المستند/البطاقة متعدد القنوات من Bitmap بدقة منخفضة الذاكرة
+     * كشف حدود الورقة الخارجية الكاملة من Bitmap مع الحفاظ على نسبة الأبعاد الحقيقية للصورة
      */
     public static DetectionResult detectDocumentQuad(Bitmap srcBmp, float stabilityDiff, int scanMode) {
-        float[] fallback = (scanMode == SCAN_MODE_ID_CARD) ? defaultIdCardCorners() : defaultGuideCorners();
-        if (srcBmp == null || srcBmp.isRecycled()) {
-            return new DetectionResult(false, 0.1f, 0f, stabilityDiff, fallback);
+        float[] fallback = (scanMode == SCAN_MODE_ID_CARD) ? defaultIdCardCorners() : fullFrameCorners();
+        if (srcBmp == null || srcBmp.isRecycled() || srcBmp.getWidth() < 16 || srcBmp.getHeight() < 16) {
+            return new DetectionResult(false, 0.05f, 0f, stabilityDiff, fallback);
         }
-        final int w = srcBmp.getWidth() >= srcBmp.getHeight() ? 266 : 200;
-        final int h = srcBmp.getWidth() >= srcBmp.getHeight() ? 200 : 266;
+        final int longEdge = 320;
+        int sw = srcBmp.getWidth();
+        int sh = srcBmp.getHeight();
+        float scale = longEdge / (float) Math.max(sw, sh);
+        int w = Math.max(120, Math.round(sw * scale));
+        int h = Math.max(120, Math.round(sh * scale));
+
         Bitmap scaled = Bitmap.createScaledBitmap(srcBmp, w, h, true);
         int[] px = new int[w * h];
         scaled.getPixels(px, 0, w, 0, 0, w, h);
         if (scaled != srcBmp) scaled.recycle();
-        return detectQuadFromArgb(px, w, h, stabilityDiff, scanMode);
+        return detectDocumentQuadFromArgb(px, w, h, stabilityDiff, scanMode);
     }
 
-    private static DetectionResult detectQuadFromArgb(int[] px, int w, int h, float stabilityDiff, int scanMode) {
+    /**
+     * نقطة دخول قابلة للاختبار المباشر على مصفوفات ARGB الكاملة دون الحاجة لـ Bitmap
+     */
+    public static DetectionResult detectDocumentQuadFromArgb(int[] px, int w, int h, float stabilityDiff, int scanMode) {
+        float[] fallback = (scanMode == SCAN_MODE_ID_CARD) ? defaultIdCardCorners() : fullFrameCorners();
+        if (px == null || w < 32 || h < 32 || px.length < w * h) {
+            return new DetectionResult(false, 0.05f, 0f, stabilityDiff, fallback);
+        }
         int n = w * h;
         int[] rArr = new int[n];
         int[] gArr = new int[n];
         int[] bArr = new int[n];
-        int[] lum = new int[n];
+        int[] rawLum = new int[n];
         for (int i = 0; i < n; i++) {
             int c = px[i];
             int r = (c >> 16) & 0xFF;
@@ -168,134 +218,9 @@ public final class DocumentScannerEngine {
             rArr[i] = r;
             gArr[i] = g;
             bArr[i] = b;
-            lum[i] = (r * 77 + g * 150 + b * 29) >> 8;
+            rawLum[i] = (r * 77 + g * 150 + b * 29) >> 8;
         }
-
-        int[] smoothLum = gaussian3x3(lum, w, h);
-        int[] smoothR = gaussian3x3(rArr, w, h);
-        int[] smoothG = gaussian3x3(gArr, w, h);
-        int[] smoothB = gaussian3x3(bArr, w, h);
-
-        int[] grad = new int[n];
-        long lapSum = 0L;
-        int lapCount = 0;
-        for (int y = 1; y < h - 1; y++) {
-            for (int x = 1; x < w - 1; x++) {
-                int idx = y * w + x;
-                int lumG = sobelAt(smoothLum, w, x, y);
-                int cG = (sobelAt(smoothR, w, x, y) + sobelAt(smoothG, w, x, y) + sobelAt(smoothB, w, x, y)) / 2;
-                grad[idx] = Math.max(lumG, cG);
-
-                if (x > w / 6 && x < (w * 5) / 6 && y > h / 6 && y < (h * 5) / 6) {
-                    int lap = Math.abs(4 * lum[idx]
-                        - lum[idx - 1] - lum[idx + 1] - lum[idx - w] - lum[idx + w]);
-                    lapSum += lap;
-                    lapCount++;
-                }
-            }
-        }
-        float sharpness = lapCount > 0 ? (lapSum / (float) lapCount) : 0f;
-
-        // تقدير الخلفية من الإطار الخارجي
-        int maxB = w * 8 + h * 8 + 32;
-        int[] bR = new int[maxB], bG = new int[maxB], bB = new int[maxB], bL = new int[maxB];
-        int bs = 0;
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                if ((x < 5 || x >= w - 5 || y < 5 || y >= h - 5) && bs < maxB) {
-                    int idx = y * w + x;
-                    bR[bs] = smoothR[idx];
-                    bG[bs] = smoothG[idx];
-                    bB[bs] = smoothB[idx];
-                    bL[bs] = smoothLum[idx];
-                    bs++;
-                }
-            }
-        }
-        Arrays.sort(bR, 0, bs);
-        Arrays.sort(bG, 0, bs);
-        Arrays.sort(bB, 0, bs);
-        Arrays.sort(bL, 0, bs);
-        int medR = bs > 0 ? bR[bs / 2] : 100;
-        int medG = bs > 0 ? bG[bs / 2] : 100;
-        int medB = bs > 0 ? bB[bs / 2] : 100;
-        int borderMedL = bs > 0 ? bL[bs / 2] : 100;
-
-        // أخذ عينة من المنطقة الوسطى (أو منطقة البطاقة المركزية)
-        int yStart = (scanMode == SCAN_MODE_ID_CARD) ? (h * 3) / 10 : h / 4;
-        int yEnd = (scanMode == SCAN_MODE_ID_CARD) ? (h * 7) / 10 : (h * 3) / 4;
-        int xStart = (scanMode == SCAN_MODE_ID_CARD) ? w / 5 : w / 4;
-        int xEnd = (scanMode == SCAN_MODE_ID_CARD) ? (w * 4) / 5 : (w * 3) / 4;
-
-        int maxC = (w * h) / 3 + 32;
-        int[] cR = new int[maxC], cG = new int[maxC], cB = new int[maxC], cL = new int[maxC];
-        int cs = 0;
-        for (int y = yStart; y < yEnd; y++) {
-            for (int x = xStart; x < xEnd; x++) {
-                if (cs < maxC) {
-                    int idx = y * w + x;
-                    cR[cs] = smoothR[idx];
-                    cG[cs] = smoothG[idx];
-                    cB[cs] = smoothB[idx];
-                    cL[cs] = smoothLum[idx];
-                    cs++;
-                }
-            }
-        }
-        Arrays.sort(cR, 0, cs);
-        Arrays.sort(cG, 0, cs);
-        Arrays.sort(cB, 0, cs);
-        Arrays.sort(cL, 0, cs);
-        int docR = cs > 0 ? cR[(int) (cs * 0.62f)] : 200;
-        int docG = cs > 0 ? cG[(int) (cs * 0.62f)] : 200;
-        int docB = cs > 0 ? cB[(int) (cs * 0.62f)] : 200;
-        int centerP75 = cs > 0 ? cL[(int) (cs * 0.75f)] : 190;
-
-        float lumSpan = Math.abs(centerP75 - borderMedL);
-        boolean paperBrighter = centerP75 >= borderMedL;
-        float colorSpan = (float) Math.sqrt(
-            (docR - medR) * (docR - medR) +
-            (docG - medG) * (docG - medG) +
-            (docB - medB) * (docB - medB)
-        );
-
-        float[] fallback = (scanMode == SCAN_MODE_ID_CARD) ? defaultIdCardCorners() : defaultGuideCorners();
-        boolean[] mask = new boolean[n];
-        if (lumSpan >= 11f || colorSpan >= 18f) {
-            float lumThresh = paperBrighter
-                ? (borderMedL + lumSpan * 0.44f)
-                : (borderMedL - lumSpan * 0.44f);
-            float colorDistThresh = Math.max(18f, colorSpan * 0.36f);
-            for (int y = 2; y < h - 2; y++) {
-                for (int x = 2; x < w - 2; x++) {
-                    int idx = y * w + x;
-                    boolean brightMatch = lumSpan >= 12f && (paperBrighter ? smoothLum[idx] >= lumThresh : smoothLum[idx] <= lumThresh);
-                    float bgDist = (float) Math.sqrt(
-                        (smoothR[idx] - medR) * (smoothR[idx] - medR) +
-                        (smoothG[idx] - medG) * (smoothG[idx] - medG) +
-                        (smoothB[idx] - medB) * (smoothB[idx] - medB)
-                    );
-                    float docDist = (float) Math.sqrt(
-                        (smoothR[idx] - docR) * (smoothR[idx] - docR) +
-                        (smoothG[idx] - docG) * (smoothG[idx] - docG) +
-                        (smoothB[idx] - docB) * (smoothB[idx] - docB)
-                    );
-                    boolean colorMatch = colorSpan >= 18f && bgDist >= colorDistThresh && docDist <= bgDist * 0.88f;
-                    if (brightMatch || colorMatch) {
-                        mask[idx] = true;
-                    }
-                }
-            }
-            DetectionResult primary = extractBestQuadFromMask(mask, grad, w, h, sharpness, stabilityDiff,
-                Math.max(lumSpan, colorSpan * 0.85f), scanMode);
-            if (primary.detected) return primary;
-        }
-
-        // مسار احتياطي يعتمد على حواف التدرج (مهم للورق الأبيض فوق مكتب فاتح أو بطاقات الهوية)
-        DetectionResult edgeRes = detectQuadFromEdgeEnvelope(grad, w, h, sharpness, stabilityDiff, scanMode);
-        if (edgeRes.detected) return edgeRes;
-
-        return new DetectionResult(false, 0.15f, sharpness, stabilityDiff, fallback);
+        return detectQuadCore(rawLum, rArr, gArr, bArr, w, h, stabilityDiff, scanMode, true);
     }
 
     public static DetectionResult detectDocumentQuad(byte[] grayBytes, int w, int h, float stabilityDiff) {
@@ -303,101 +228,310 @@ public final class DocumentScannerEngine {
     }
 
     /**
-     * خوارزمية الرؤية الحاسوبية بالزمن الحقيقي لإطارات NV21 الرمادية
+     * كشف حدود المستند في الزمن الحقيقي لإطارات الكاميرا الرمادية NV21
      */
     public static DetectionResult detectDocumentQuad(byte[] grayBytes, int w, int h, float stabilityDiff, int scanMode) {
+        float[] fallback = (scanMode == SCAN_MODE_ID_CARD) ? defaultIdCardCorners() : defaultGuideCorners();
+        if (grayBytes == null || w < 32 || h < 32 || grayBytes.length < w * h) {
+            return new DetectionResult(false, 0.05f, 0f, stabilityDiff, fallback);
+        }
         int n = w * h;
-        int[] lum = new int[n];
-        for (int i = 0; i < n; i++) lum[i] = grayBytes[i] & 0xFF;
+        int[] rawLum = new int[n];
+        for (int i = 0; i < n; i++) rawLum[i] = grayBytes[i] & 0xFF;
+        return detectQuadCore(rawLum, null, null, null, w, h, stabilityDiff, scanMode, false);
+    }
 
-        int[] smooth = gaussian3x3(lum, w, h);
+    private static final class ScoredCandidate {
+        final float[] quad;
+        final float confidence;
 
-        int[] grad = new int[n];
-        long lapSum = 0L;
-        int lapCount = 0;
-        for (int y = 1; y < h - 1; y++) {
-            for (int x = 1; x < w - 1; x++) {
-                int idx = y * w + x;
-                grad[idx] = sobelAt(smooth, w, x, y);
-                if (x > w / 6 && x < (w * 5) / 6 && y > h / 6 && y < (h * 5) / 6) {
-                    int lap = Math.abs(4 * lum[idx]
-                        - lum[idx - 1] - lum[idx + 1] - lum[idx - w] - lum[idx + w]);
-                    lapSum += lap;
-                    lapCount++;
-                }
-            }
+        ScoredCandidate(float[] quad, float confidence) {
+            this.quad = quad;
+            this.confidence = confidence;
         }
-        float sharpness = lapCount > 0 ? (lapSum / (float) lapCount) : 0f;
-
-        int[] borderSamples = new int[(w * 2 + h * 2) * 4];
-        int bs = 0;
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                if (x < 4 || x >= w - 4 || y < 4 || y >= h - 4) {
-                    if (bs < borderSamples.length) borderSamples[bs++] = smooth[y * w + x];
-                }
-            }
-        }
-        Arrays.sort(borderSamples, 0, bs);
-        int borderMedian = bs > 0 ? borderSamples[bs / 2] : 100;
-
-        int[] centerSamples = new int[(w * h) / 4 + 16];
-        int cs = 0;
-        for (int y = h / 4; y < (h * 3) / 4; y++) {
-            for (int x = w / 4; x < (w * 3) / 4; x++) {
-                if (cs < centerSamples.length) centerSamples[cs++] = smooth[y * w + x];
-            }
-        }
-        Arrays.sort(centerSamples, 0, cs);
-        int centerP75 = cs > 0 ? centerSamples[(int) (cs * 0.75f)] : 180;
-
-        int contrastSpan = Math.abs(centerP75 - borderMedian);
-        boolean brighter = centerP75 >= borderMedian;
-        int threshold = contrastSpan >= 14
-            ? (brighter
-                ? borderMedian + Math.max(10, Math.round(contrastSpan * 0.40f))
-                : borderMedian - Math.max(10, Math.round(contrastSpan * 0.40f)))
-            : Math.min(205, borderMedian + 24);
-
-        boolean[] mask = new boolean[n];
-        for (int y = 2; y < h - 2; y++) {
-            for (int x = 2; x < w - 2; x++) {
-                int idx = y * w + x;
-                if (brighter ? (smooth[idx] >= threshold) : (smooth[idx] <= threshold)) {
-                    mask[idx] = true;
-                }
-            }
-        }
-        DetectionResult res = extractBestQuadFromMask(mask, grad, w, h, sharpness, stabilityDiff, contrastSpan, scanMode);
-        if (res.detected) return res;
-
-        return detectQuadFromEdgeEnvelope(grad, w, h, sharpness, stabilityDiff, scanMode);
     }
 
     /**
-     * مسار كشف احتياطي يعتمد على إغلاق الحواف القوية واستخراج الصندوق الداخلي الأكبر
+     * النواة الموحدة لاكتشاف حدود الورقة الخارجية الكاملة:
+     * 1. إزالة النص والأختام والباركود والأسطر الداخلية عبر الإغلاق المورفولوجي (Separable Closing)
+     *    بحيث لا تنجذب الحواف أبداً إلى فقرة أو شريط سفلي داخل المستند
+     * 2. توليد فرضيات متعددة (تباين الخلفية، عتبة Otsu التكيفية، غلاف الحواف النظيف، إسقاط الحواف الأربع)
+     * 3. تقييم كل فرضية بفحوصات هندسية صارمة ضد الأشرطة والميل قبل اعتماد أي نتيجة
      */
-    private static DetectionResult detectQuadFromEdgeEnvelope(
-        int[] grad, int w, int h, float sharpness, float stabilityDiff, int scanMode
+    private static DetectionResult detectQuadCore(
+        int[] rawLum,
+        int[] rawR,
+        int[] rawG,
+        int[] rawB,
+        int w,
+        int h,
+        float stabilityDiff,
+        int scanMode,
+        boolean hasColor
     ) {
         int n = w * h;
-        int[] sample = new int[n / 4 + 8];
+        int[] smoothLum = gaussian3x3(rawLum, w, h);
+        float sharpness = computeInteriorLaplacianSharpness(rawLum, w, h);
+
+        int closeRadius = Math.max(2, Math.min(4, Math.round(Math.min(w, h) / 72f)));
+        int[] closedLum = morphCloseSeparable(smoothLum, w, h, closeRadius);
+
+        int[] closedR = null, closedG = null, closedB = null;
+        if (hasColor && rawR != null && rawG != null && rawB != null) {
+            closedR = morphCloseSeparable(gaussian3x3(rawR, w, h), w, h, closeRadius);
+            closedG = morphCloseSeparable(gaussian3x3(rawG, w, h), w, h, closeRadius);
+            closedB = morphCloseSeparable(gaussian3x3(rawB, w, h), w, h, closeRadius);
+        }
+
+        int[] closedGrad = new int[n];
+        int[] closedGx = new int[n];
+        int[] closedGy = new int[n];
+        for (int y = 1; y < h - 1; y++) {
+            int row = y * w;
+            for (int x = 1; x < w - 1; x++) {
+                int idx = row + x;
+                int gx =
+                    -closedLum[(y - 1) * w + (x - 1)] + closedLum[(y - 1) * w + (x + 1)]
+                    - 2 * closedLum[row + (x - 1)] + 2 * closedLum[row + (x + 1)]
+                    - closedLum[(y + 1) * w + (x - 1)] + closedLum[(y + 1) * w + (x + 1)];
+                int gy =
+                    -closedLum[(y - 1) * w + (x - 1)] - 2 * closedLum[(y - 1) * w + x] - closedLum[(y - 1) * w + (x + 1)]
+                    + closedLum[(y + 1) * w + (x - 1)] + 2 * closedLum[(y + 1) * w + x] + closedLum[(y + 1) * w + (x + 1)];
+                closedGx[idx] = gx;
+                closedGy[idx] = gy;
+                int gMag = Math.abs(gx) + Math.abs(gy);
+                if (closedR != null) {
+                    int cg = (sobelAt(closedR, w, x, y) + sobelAt(closedG, w, x, y) + sobelAt(closedB, w, x, y)) / 2;
+                    if (cg > gMag) gMag = cg;
+                }
+                closedGrad[idx] = gMag;
+            }
+        }
+
+        // عينات الإطار الخارجي + عينات المنطقة الداخلية (على الصورة المنظّفة من النصوص)
+        int maxB = w * 8 + h * 8 + 64;
+        int[] bL = new int[maxB];
+        int[] bR = hasColor ? new int[maxB] : null;
+        int[] bG = hasColor ? new int[maxB] : null;
+        int[] bB = hasColor ? new int[maxB] : null;
+        int bs = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if ((x < 4 || x >= w - 4 || y < 4 || y >= h - 4) && bs < maxB) {
+                    int idx = y * w + x;
+                    bL[bs] = closedLum[idx];
+                    if (hasColor) {
+                        bR[bs] = closedR[idx];
+                        bG[bs] = closedG[idx];
+                        bB[bs] = closedB[idx];
+                    }
+                    bs++;
+                }
+            }
+        }
+        Arrays.sort(bL, 0, bs);
+        int borderP25 = bs > 0 ? bL[(int) (bs * 0.25f)] : 90;
+        int borderMed = bs > 0 ? bL[bs / 2] : 110;
+        int borderP75 = bs > 0 ? bL[(int) (bs * 0.75f)] : 130;
+        int medR = 110, medG = 110, medB = 110;
+        if (hasColor && bs > 0) {
+            Arrays.sort(bR, 0, bs);
+            Arrays.sort(bG, 0, bs);
+            Arrays.sort(bB, 0, bs);
+            medR = bR[bs / 2];
+            medG = bG[bs / 2];
+            medB = bB[bs / 2];
+        }
+
+        int yStart = (scanMode == SCAN_MODE_ID_CARD) ? (h * 28) / 100 : (h * 18) / 100;
+        int yEnd = (scanMode == SCAN_MODE_ID_CARD) ? (h * 72) / 100 : (h * 82) / 100;
+        int xStart = (scanMode == SCAN_MODE_ID_CARD) ? (w * 18) / 100 : (w * 18) / 100;
+        int xEnd = (scanMode == SCAN_MODE_ID_CARD) ? (w * 82) / 100 : (w * 82) / 100;
+
+        int maxC = (w * h) / 2 + 64;
+        int[] cL = new int[maxC];
+        int[] cR = hasColor ? new int[maxC] : null;
+        int[] cG = hasColor ? new int[maxC] : null;
+        int[] cB = hasColor ? new int[maxC] : null;
+        int cs = 0;
+        for (int y = yStart; y < yEnd; y++) {
+            for (int x = xStart; x < xEnd; x++) {
+                if (cs < maxC) {
+                    int idx = y * w + x;
+                    cL[cs] = closedLum[idx];
+                    if (hasColor) {
+                        cR[cs] = closedR[idx];
+                        cG[cs] = closedG[idx];
+                        cB[cs] = closedB[idx];
+                    }
+                    cs++;
+                }
+            }
+        }
+        Arrays.sort(cL, 0, cs);
+        int centerP60 = cs > 0 ? cL[(int) (cs * 0.60f)] : 195;
+        int centerP75 = cs > 0 ? cL[(int) (cs * 0.75f)] : 205;
+        int docR = 200, docG = 200, docB = 200;
+        if (hasColor && cs > 0) {
+            Arrays.sort(cR, 0, cs);
+            Arrays.sort(cG, 0, cs);
+            Arrays.sort(cB, 0, cs);
+            docR = cR[(int) (cs * 0.65f)];
+            docG = cG[(int) (cs * 0.65f)];
+            docB = cB[(int) (cs * 0.65f)];
+        }
+
+        ScoredCandidate best = null;
+
+        // الفرضية 1: فصل لون وسطوع الورقة عن الإطار المحيط (مع مسارين للحدود الملامسة للحافة)
+        float lumSpanMed = Math.abs(centerP75 - borderMed);
+        float lumSpanLow = Math.abs(centerP75 - borderP25);
+        float colorSpan = hasColor ? (float) Math.sqrt(
+            (docR - medR) * (docR - medR) + (docG - medG) * (docG - medG) + (docB - medB) * (docB - medB)
+        ) : 0f;
+
+        if (lumSpanMed >= 9f || colorSpan >= 14f) {
+            boolean brighter = centerP75 >= borderMed;
+            float lumT = brighter ? (borderMed + lumSpanMed * 0.42f) : (borderMed - lumSpanMed * 0.42f);
+            boolean[] maskA = buildColorLumMask(closedLum, closedR, closedG, closedB, w, h,
+                brighter, lumSpanMed, lumT, medR, medG, medB, docR, docG, docB, colorSpan, hasColor);
+            best = pickBetter(best, evaluateMaskCandidates(maskA, closedGrad, closedLum, w, h,
+                Math.max(lumSpanMed, colorSpan * 0.85f), scanMode));
+        }
+
+        if (lumSpanLow >= 14f && Math.abs(borderMed - borderP25) >= 12f) {
+            boolean brighter = centerP75 >= borderP25;
+            float lumT = brighter ? (borderP25 + lumSpanLow * 0.45f) : (borderP25 - lumSpanLow * 0.45f);
+            boolean[] maskA2 = buildColorLumMask(closedLum, null, null, null, w, h,
+                brighter, lumSpanLow, lumT, 0, 0, 0, 0, 0, 0, 0f, false);
+            best = pickBetter(best, evaluateMaskCandidates(maskA2, closedGrad, closedLum, w, h,
+                lumSpanLow, scanMode));
+        }
+
+        // الفرضية 2: عتبة Otsu التكيفية على خريطة الورقة المنظّفة (تعالج الظلال والإضاءة غير المتجانسة)
+        int[] otsu = computeOtsuThreshold(closedLum, w, h);
+        if (otsu[1] >= 12) {
+            int otsuT = otsu[0];
+            boolean paperBright = centerP60 >= borderP25 || centerP75 >= borderP75 - 8;
+            boolean[] maskOtsu = new boolean[n];
+            for (int y = 1; y < h - 1; y++) {
+                for (int x = 1; x < w - 1; x++) {
+                    int idx = y * w + x;
+                    maskOtsu[idx] = paperBright ? (closedLum[idx] >= otsuT) : (closedLum[idx] <= otsuT);
+                }
+            }
+            best = pickBetter(best, evaluateMaskCandidates(maskOtsu, closedGrad, closedLum, w, h, otsu[1], scanMode));
+        }
+
+        // الفرضية 3: غلاف الحواف المنظّف من النصوص (بعتبة قوية + عتبة لطيفة للورق الفاتح فوق خلفية فاتحة)
+        best = pickBetter(best, detectFromCleanEdgeEnvelope(closedGrad, closedLum, w, h, 0.84f, 44, scanMode));
+        if (best == null || best.confidence < 0.62f) {
+            best = pickBetter(best, detectFromCleanEdgeEnvelope(closedGrad, closedLum, w, h, 0.76f, 26, scanMode));
+        }
+
+        // الفرضية 4: إسقاط الحواف الأربع المستقيمة (للمستندات الكاملة أو ذات التباين المنخفض مع الخلفية)
+        if (scanMode != SCAN_MODE_ID_CARD && (best == null || best.confidence < 0.68f)) {
+            best = pickBetter(best, detectFromDirectionalBorderLines(closedGrad, closedGx, closedGy, closedLum, w, h, scanMode));
+        }
+
+        if (best != null && best.confidence >= 0.50f) {
+            return new DetectionResult(true, best.confidence, sharpness, stabilityDiff, best.quad);
+        }
+        float[] missFallback = (scanMode == SCAN_MODE_ID_CARD)
+            ? defaultIdCardCorners()
+            : (hasColor ? fullFrameCorners() : defaultGuideCorners());
+        float missConf = best != null ? Math.min(0.42f, best.confidence) : 0.12f;
+        return new DetectionResult(false, missConf, sharpness, stabilityDiff, missFallback);
+    }
+
+    private static boolean[] buildColorLumMask(
+        int[] lum, int[] rArr, int[] gArr, int[] bArr, int w, int h,
+        boolean paperBrighter, float lumSpan, float lumThresh,
+        int medR, int medG, int medB, int docR, int docG, int docB, float colorSpan, boolean hasColor
+    ) {
+        int n = w * h;
+        boolean[] mask = new boolean[n];
+        float colorDistThresh = Math.max(15f, colorSpan * 0.34f);
+        for (int y = 1; y < h - 1; y++) {
+            for (int x = 1; x < w - 1; x++) {
+                int idx = y * w + x;
+                boolean brightMatch = lumSpan >= 9f && (paperBrighter ? lum[idx] >= lumThresh : lum[idx] <= lumThresh);
+                boolean colorMatch = false;
+                if (hasColor && colorSpan >= 14f) {
+                    float bgDist = (float) Math.sqrt(
+                        (rArr[idx] - medR) * (rArr[idx] - medR) +
+                        (gArr[idx] - medG) * (gArr[idx] - medG) +
+                        (bArr[idx] - medB) * (bArr[idx] - medB)
+                    );
+                    float docDist = (float) Math.sqrt(
+                        (rArr[idx] - docR) * (rArr[idx] - docR) +
+                        (gArr[idx] - docG) * (gArr[idx] - docG) +
+                        (bArr[idx] - docB) * (bArr[idx] - docB)
+                    );
+                    colorMatch = bgDist >= colorDistThresh && docDist <= bgDist * 0.90f;
+                }
+                if (brightMatch || colorMatch) mask[idx] = true;
+            }
+        }
+        return mask;
+    }
+
+    private static int[] computeOtsuThreshold(int[] lum, int w, int h) {
+        int[] hist = new int[256];
+        int total = 0;
+        long sumAll = 0L;
+        for (int y = 2; y < h - 2; y++) {
+            for (int x = 2; x < w - 2; x++) {
+                int v = Math.max(0, Math.min(255, lum[y * w + x]));
+                hist[v]++;
+                total++;
+                sumAll += v;
+            }
+        }
+        if (total == 0) return new int[]{ 128, 0 };
+        double sumB = 0.0;
+        int wB = 0;
+        double maxVar = -1.0;
+        int bestT = 128;
+        int bestSep = 0;
+        for (int t = 0; t < 256; t++) {
+            wB += hist[t];
+            if (wB == 0) continue;
+            int wF = total - wB;
+            if (wF == 0) break;
+            sumB += (double) t * hist[t];
+            double mB = sumB / wB;
+            double mF = (sumAll - sumB) / wF;
+            double varBetween = (double) wB * wF * (mB - mF) * (mB - mF);
+            if (varBetween > maxVar) {
+                maxVar = varBetween;
+                bestT = t;
+                bestSep = (int) Math.round(Math.abs(mF - mB));
+            }
+        }
+        return new int[]{ bestT, bestSep };
+    }
+
+    private static ScoredCandidate detectFromCleanEdgeEnvelope(
+        int[] grad, int[] closedLum, int w, int h, float pctile, int minFloor, int scanMode
+    ) {
+        int n = w * h;
+        int[] sample = new int[n / 4 + 16];
         int sc = 0;
-        for (int y = 4; y < h - 4; y += 2) {
-            for (int x = 4; x < w - 4; x += 2) {
+        for (int y = 3; y < h - 3; y += 2) {
+            for (int x = 3; x < w - 3; x += 2) {
                 if (sc < sample.length) sample[sc++] = grad[y * w + x];
             }
         }
         Arrays.sort(sample, 0, sc);
-        int edgeThresh = sc > 0 ? Math.max(58, sample[(int) (sc * 0.84f)]) : 75;
+        int edgeThresh = sc > 0 ? Math.max(minFloor, sample[(int) (sc * pctile)]) : minFloor;
 
         boolean[] edgeMask = new boolean[n];
-        for (int y = 2; y < h - 2; y++) {
-            for (int x = 2; x < w - 2; x++) {
+        for (int y = 1; y < h - 1; y++) {
+            for (int x = 1; x < w - 1; x++) {
                 if (grad[y * w + x] >= edgeThresh) edgeMask[y * w + x] = true;
             }
         }
-        // إغلاق الفجوات وملء ما خارج الحافة عبر BFS من الحواف الأربع
         boolean[] barrier = dilate3x3(edgeMask, w, h);
         boolean[] outside = new boolean[n];
         int[] q = new int[n];
@@ -417,8 +551,7 @@ public final class DocumentScannerEngine {
         int[] dys = { 0, 0, -1, 1 };
         while (head < tail) {
             int cur = q[head++];
-            int cx = cur % w;
-            int cy = cur / w;
+            int cx = cur % w, cy = cur / w;
             for (int k = 0; k < 4; k++) {
                 int nx = cx + dxs[k], ny = cy + dys[k];
                 if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
@@ -433,25 +566,136 @@ public final class DocumentScannerEngine {
         boolean[] inside = new boolean[n];
         int insideCount = 0;
         for (int i = 0; i < n; i++) {
-            if (!outside[i]) {
-                inside[i] = true;
-                insideCount++;
-            }
+            if (!outside[i]) { inside[i] = true; insideCount++; }
         }
-        if (insideCount > n * 0.06f && insideCount < n * 0.90f) {
-            return extractBestQuadFromMask(inside, grad, w, h, sharpness, stabilityDiff, 35f, scanMode);
+        float minFrac = (scanMode == SCAN_MODE_ID_CARD) ? 0.09f : 0.20f;
+        if (insideCount > n * minFrac && insideCount < n * 0.96f) {
+            return evaluateMaskCandidates(inside, grad, closedLum, w, h, 34f, scanMode);
         }
-        float[] fallback = (scanMode == SCAN_MODE_ID_CARD) ? defaultIdCardCorners() : defaultGuideCorners();
-        return new DetectionResult(false, 0.18f, sharpness, stabilityDiff, fallback);
+        return null;
     }
 
-    private static DetectionResult extractBestQuadFromMask(
+    /**
+     * إسقاط الحواف الأربع المستقيمة عبر مسح مائل (-16°..+16°) في النطاقات الخارجية الأربعة
+     */
+    private static ScoredCandidate detectFromDirectionalBorderLines(
+        int[] grad, int[] gx, int[] gy, int[] closedLum, int w, int h, int scanMode
+    ) {
+        // نحسب أعلى خط مستقيم في كل من: أعلى [0..0.38h]، أسفل [0.62h..1.0h]، يسار [0..0.38w]، يمين [0.62w..1.0w]
+        double[] topLine = findStrongestBandLine(grad, gx, gy, w, h, true, 0.02f, 0.36f, 1f);
+        double[] botLine = findStrongestBandLine(grad, gx, gy, w, h, true, 0.64f, 0.98f, -1f);
+        double[] leftLine = findStrongestBandLine(grad, gx, gy, w, h, false, 0.02f, 0.36f, 1f);
+        double[] rightLine = findStrongestBandLine(grad, gx, gy, w, h, false, 0.64f, 0.98f, -1f);
+
+        if (topLine == null || botLine == null || leftLine == null || rightLine == null) return null;
+
+        PointF tl = intersectLinePair(leftLine, topLine);
+        PointF tr = intersectLinePair(topLine, rightLine);
+        PointF br = intersectLinePair(rightLine, botLine);
+        PointF bl = intersectLinePair(botLine, leftLine);
+        if (tl == null || tr == null || br == null || bl == null) return null;
+
+        float[] quad = canonicalOrderQuad(new float[]{
+            clamp01(tl.x / w), clamp01(tl.y / h),
+            clamp01(tr.x / w), clamp01(tr.y / h),
+            clamp01(br.x / w), clamp01(br.y / h),
+            clamp01(bl.x / w), clamp01(bl.y / h)
+        });
+        float[] refined = refineQuadCornersDirectional(quad, grad, w, h, scanMode);
+        float[] padded = expandQuadSlightly(refined, 0.005f);
+        return scoreAndValidateQuad(padded, grad, closedLum, w, h, 30f, scanMode, 0.92f);
+    }
+
+    /**
+     * إيجاد أقوى خط حافة مستمر في نطاق أفقي أو عمودي (مع تفضيل الخطوط القريبة من المحيط الخارجي)
+     */
+    private static double[] findStrongestBandLine(
+        int[] grad, int[] gx, int[] gy, int w, int h,
+        boolean horizontal, float startFrac, float endFrac, float inwardDir
+    ) {
+        double bestScore = -1.0;
+        double[] bestLine = null;
+        int span = horizontal ? w : h;
+        int crossSpan = horizontal ? h : w;
+        int posStart = Math.max(2, Math.round(crossSpan * startFrac));
+        int posEnd = Math.min(crossSpan - 3, Math.round(crossSpan * endFrac));
+        int xMin = Math.round(span * 0.12f);
+        int xMax = Math.round(span * 0.88f);
+        int step = Math.max(2, (xMax - xMin) / 48);
+
+        for (int deg = -14; deg <= 14; deg += 2) {
+            double slope = Math.tan(Math.toRadians(deg));
+            for (int c = posStart; c <= posEnd; c += 2) {
+                double sumG = 0.0;
+                int hits = 0;
+                int total = 0;
+                int polPos = 0, polNeg = 0;
+                for (int u = xMin; u <= xMax; u += step) {
+                    double du = u - span * 0.5;
+                    int v = (int) Math.round(c + slope * du);
+                    if (v < 2 || v >= crossSpan - 2) continue;
+                    int px = horizontal ? u : v;
+                    int py = horizontal ? v : u;
+                    int idx = py * w + px;
+                    int g = grad[idx];
+                    // فحص ±1px للتسامح مع الرقمنة
+                    int gMax = Math.max(g, horizontal
+                        ? Math.max(grad[(py - 1) * w + px], grad[(py + 1) * w + px])
+                        : Math.max(grad[py * w + (px - 1)], grad[py * w + (px + 1)]));
+                    total++;
+                    if (gMax >= 24) {
+                        hits++;
+                        sumG += Math.min(180, gMax);
+                        int sg = horizontal ? gy[idx] : gx[idx];
+                        if (sg > 12) polPos++;
+                        else if (sg < -12) polNeg++;
+                    }
+                }
+                if (total < 14 || hits < total * 0.42) continue;
+                double hitRatio = hits / (double) total;
+                double avgG = sumG / total;
+                double polarityConsistency = Math.max(polPos, polNeg) / (double) Math.max(1, polPos + polNeg);
+                if (polarityConsistency < 0.62) continue;
+                // مكافأة طفيفة للاقتراب من المحيط الخارجي للورقة بدل الانزلاق إلى حافة فقرة داخلية
+                double distFromMid = Math.abs(c - crossSpan * 0.5) / (crossSpan * 0.5);
+                double score = avgG * hitRatio * (0.7 + 0.3 * polarityConsistency) * (0.88 + 0.22 * distFromMid);
+                if (score > bestScore) {
+                    bestScore = score;
+                    // تمثيل الخط: a*x + b*y + cc = 0
+                    if (horizontal) {
+                        // y = c + slope * (x - w*0.5)  =>  -slope*x + y + (slope*w*0.5 - c) = 0
+                        bestLine = new double[]{ -slope, 1.0, slope * (w * 0.5) - c };
+                    } else {
+                        // x = c + slope * (y - h*0.5)  =>  x - slope*y + (slope*h*0.5 - c) = 0
+                        bestLine = new double[]{ 1.0, -slope, slope * (h * 0.5) - c };
+                    }
+                }
+            }
+        }
+        return bestLine;
+    }
+
+    private static PointF intersectLinePair(double[] l1, double[] l2) {
+        double det = l1[0] * l2[1] - l2[0] * l1[1];
+        if (Math.abs(det) < 1e-6) return null;
+        double x = (l1[1] * l2[2] - l2[1] * l1[2]) / det;
+        double y = (l2[0] * l1[2] - l1[0] * l2[2]) / det;
+        if (Double.isNaN(x) || Double.isNaN(y) || Double.isInfinite(x) || Double.isInfinite(y)) return null;
+        return new PointF((float) x, (float) y);
+    }
+
+    private static ScoredCandidate pickBetter(ScoredCandidate a, ScoredCandidate b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        return b.confidence > a.confidence ? b : a;
+    }
+
+    private static ScoredCandidate evaluateMaskCandidates(
         boolean[] mask,
         int[] grad,
+        int[] closedLum,
         int w,
         int h,
-        float sharpness,
-        float stabilityDiff,
         float contrastSpan,
         int scanMode
     ) {
@@ -462,11 +706,17 @@ public final class DocumentScannerEngine {
 
         int[] visited = new int[n];
         int[] queue = new int[n];
+
+        float minAreaRatio = (scanMode == SCAN_MODE_ID_CARD) ? 0.09f : 0.20f;
+        float maxBorderRatio = 0.72f;
+
         List<int[]> bestBlob = null;
         int bestArea = 0;
+        List<int[]> secondBlob = null;
+        int secondArea = 0;
 
-        float minAreaRatio = (scanMode == SCAN_MODE_ID_CARD) ? 0.055f : 0.10f;
-        float maxBorderRatio = 0.42f;
+        int[] dxs = { -1, 1, 0, 0 };
+        int[] dys = { 0, 0, -1, 1 };
 
         for (int y = 2; y < h - 2; y++) {
             for (int x = 2; x < w - 2; x++) {
@@ -485,12 +735,10 @@ public final class DocumentScannerEngine {
                     int cy = cur / w;
                     int cx = cur % w;
                     area++;
-                    if (cx <= 2 || cx >= w - 3 || cy <= 2 || cy >= h - 3) {
+                    if (cx <= 1 || cx >= w - 2 || cy <= 1 || cy >= h - 2) {
                         borderTouches++;
                     }
                     boolean isEdge = false;
-                    int[] dxs = { -1, 1, 0, 0 };
-                    int[] dys = { 0, 0, -1, 1 };
                     for (int k = 0; k < 4; k++) {
                         int nx = cx + dxs[k];
                         int ny = cy + dys[k];
@@ -512,39 +760,418 @@ public final class DocumentScannerEngine {
                 }
 
                 float areaRatio = area / (float) n;
-                if (areaRatio >= minAreaRatio && areaRatio <= 0.96f && borderTouches < area * maxBorderRatio && area > bestArea) {
-                    bestArea = area;
-                    bestBlob = perimeter;
+                if (areaRatio >= minAreaRatio && areaRatio <= 0.985f && borderTouches < area * maxBorderRatio) {
+                    if (area > bestArea) {
+                        secondArea = bestArea;
+                        secondBlob = bestBlob;
+                        bestArea = area;
+                        bestBlob = perimeter;
+                    } else if (area > secondArea) {
+                        secondArea = area;
+                        secondBlob = perimeter;
+                    }
                 }
             }
         }
 
-        float[] fallback = (scanMode == SCAN_MODE_ID_CARD) ? defaultIdCardCorners() : defaultGuideCorners();
-        if (bestBlob == null || bestBlob.size() < 16) {
-            return new DetectionResult(false, 0.15f, sharpness, stabilityDiff, fallback);
+        ScoredCandidate res = null;
+        if (bestBlob != null && bestBlob.size() >= 16) {
+            res = pickBetter(res, fitAndScoreBlob(bestBlob, bestArea, grad, closedLum, w, h, contrastSpan, scanMode));
         }
+        if (secondBlob != null && secondBlob.size() >= 16) {
+            res = pickBetter(res, fitAndScoreBlob(secondBlob, secondArea, grad, closedLum, w, h, contrastSpan, scanMode));
+        }
+        return res;
+    }
 
-        List<PointF> hull = convexHull(bestBlob);
-        if (hull.size() < 4) {
-            return new DetectionResult(false, 0.2f, sharpness, stabilityDiff, fallback);
-        }
+    private static ScoredCandidate fitAndScoreBlob(
+        List<int[]> perimeter,
+        int blobArea,
+        int[] grad,
+        int[] closedLum,
+        int w,
+        int h,
+        float contrastSpan,
+        int scanMode
+    ) {
+        List<PointF> hull = convexHull(perimeter);
+        if (hull.size() < 4) return null;
 
-        float[] fitted = fitQuadFromHullAndEdges(hull, w, h);
-        if (fitted == null || !isValidPaperQuad(fitted, scanMode)) {
-            return new DetectionResult(false, 0.28f, sharpness, stabilityDiff, fallback);
-        }
+        float[] fitted = fitQuadFromHullRobust(hull, w, h);
+        if (fitted == null) return null;
 
         float[] refined = refineQuadCornersDirectional(fitted, grad, w, h, scanMode);
-        float[] protectedQuad = expandQuadSlightly(refined, 0.005f);
+        float[] protectedQuad = expandQuadSlightly(refined, 0.006f);
+        float[] ordered = canonicalOrderQuad(protectedQuad);
 
-        float edgeSupport = measureQuadEdgeSupport(protectedQuad, grad, w, h);
-        float blobCoverage = Math.min(1f, bestArea / (quadPolygonArea(protectedQuad) * n + 1f));
-        float confidence = Math.min(0.98f,
-            edgeSupport * 0.50f + blobCoverage * 0.30f + Math.min(1f, Math.max(0f, contrastSpan) / 55f) * 0.20f);
+        float quadAreaPx = quadPolygonArea(ordered) * (w * h);
+        float fillRatio = Math.min(1.05f, blobArea / Math.max(1f, quadAreaPx));
+        return scoreAndValidateQuad(ordered, grad, closedLum, w, h, contrastSpan, scanMode, fillRatio);
+    }
 
-        boolean detected = edgeSupport >= 0.24f && confidence >= 0.44f;
-        return new DetectionResult(detected, confidence, sharpness, stabilityDiff,
-            detected ? protectedQuad : fallback);
+    /**
+     * تقليص الغلاف المحدب بتقنية حذف أصغر مثلث ثم ملاءمة أضلاع المربع بدقة عند أي زاوية ميل
+     */
+    private static float[] fitQuadFromHullRobust(List<PointF> hull, int w, int h) {
+        List<PointF> poly = new ArrayList<PointF>(hull);
+        while (poly.size() > 4) {
+            int removeIdx = 0;
+            double minTriArea = Double.MAX_VALUE;
+            int m = poly.size();
+            for (int i = 0; i < m; i++) {
+                PointF a = poly.get((i + m - 1) % m);
+                PointF b = poly.get(i);
+                PointF c = poly.get((i + 1) % m);
+                double area = Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) * 0.5;
+                if (area < minTriArea) {
+                    minTriArea = area;
+                    removeIdx = i;
+                }
+            }
+            poly.remove(removeIdx);
+        }
+        if (poly.size() != 4) return null;
+
+        // ترتيب أولي عقارب الساعة حول المركز
+        float[] rawQuad = canonicalOrderQuad(new float[]{
+            poly.get(0).x, poly.get(0).y,
+            poly.get(1).x, poly.get(1).y,
+            poly.get(2).x, poly.get(2).y,
+            poly.get(3).x, poly.get(3).y
+        });
+
+        PointF tl0 = new PointF(rawQuad[0], rawQuad[1]);
+        PointF tr0 = new PointF(rawQuad[2], rawQuad[3]);
+        PointF br0 = new PointF(rawQuad[4], rawQuad[5]);
+        PointF bl0 = new PointF(rawQuad[6], rawQuad[7]);
+
+        double[] lineTop = fitSideLine(hull, tl0, tr0);
+        double[] lineRight = fitSideLine(hull, tr0, br0);
+        double[] lineBottom = fitSideLine(hull, br0, bl0);
+        double[] lineLeft = fitSideLine(hull, bl0, tl0);
+
+        double maxJump = Math.min(w, h) * 0.14;
+        PointF tl = intersectLinesBounded(lineLeft, lineTop, tl0, maxJump);
+        PointF tr = intersectLinesBounded(lineTop, lineRight, tr0, maxJump);
+        PointF br = intersectLinesBounded(lineRight, lineBottom, br0, maxJump);
+        PointF bl = intersectLinesBounded(lineBottom, lineLeft, bl0, maxJump);
+
+        return canonicalOrderQuad(new float[]{
+            clamp01(tl.x / w), clamp01(tl.y / h),
+            clamp01(tr.x / w), clamp01(tr.y / h),
+            clamp01(br.x / w), clamp01(br.y / h),
+            clamp01(bl.x / w), clamp01(bl.y / h)
+        });
+    }
+
+    /**
+     * ترتيب الزوايا الأربع هندسياً بترتيب ثابت:
+     * 0: أعلى يسار (TL)، 1: أعلى يمين (TR)، 2: أسفل يمين (BR)، 3: أسفل يسار (BL)
+     */
+    public static float[] canonicalOrderQuad(float[] c) {
+        if (c == null || c.length != 8) return fullFrameCorners();
+        float mx = (c[0] + c[2] + c[4] + c[6]) * 0.25f;
+        float my = (c[1] + c[3] + c[5] + c[7]) * 0.25f;
+
+        final float[][] pts = new float[4][3];
+        for (int i = 0; i < 4; i++) {
+            pts[i][0] = c[i * 2];
+            pts[i][1] = c[i * 2 + 1];
+            pts[i][2] = (float) Math.atan2(pts[i][1] - my, pts[i][0] - mx);
+        }
+        Arrays.sort(pts, new Comparator<float[]>() {
+            @Override
+            public int compare(float[] a, float[] b) {
+                return Float.compare(a[2], b[2]);
+            }
+        });
+
+        // بدء الدوران من أقرب نقطة لأعلى اليسار (أصغر x + y)
+        int start = 0;
+        float minSum = Float.MAX_VALUE;
+        for (int i = 0; i < 4; i++) {
+            float sum = pts[i][0] + pts[i][1];
+            if (sum < minSum) {
+                minSum = sum;
+                start = i;
+            }
+        }
+        float[] out = new float[8];
+        for (int i = 0; i < 4; i++) {
+            float[] p = pts[(start + i) % 4];
+            out[i * 2] = p[0];
+            out[i * 2 + 1] = p[1];
+        }
+        return out;
+    }
+
+    private static ScoredCandidate scoreAndValidateQuad(
+        float[] c,
+        int[] grad,
+        int[] closedLum,
+        int w,
+        int h,
+        float contrastSpan,
+        int scanMode,
+        float fillRatio
+    ) {
+        if (!isValidPaperQuad(c, scanMode)) return null;
+
+        int nonBorderSides = 0;
+        float sumEdgeSupport = 0f;
+        float sumBoundaryContrast = 0f;
+        float minSideScore = 1f;
+
+        for (int side = 0; side < 4; side++) {
+            int next = (side + 1) % 4;
+            float x0 = c[side * 2], y0 = c[side * 2 + 1];
+            float x1 = c[next * 2], y1 = c[next * 2 + 1];
+            if (isFlushWithImageBorder(x0, y0, x1, y1)) {
+                continue;
+            }
+            nonBorderSides++;
+            float[] sideStats = measureSingleSideSupport(x0, y0, x1, y1, grad, closedLum, w, h, c);
+            float edgeRatio = sideStats[0];
+            float stepRatio = sideStats[1];
+            float combined = Math.max(edgeRatio, stepRatio * 0.85f);
+            if (combined < 0.20f) {
+                // ضلع داخلي غير مدعوم بحافة فعلية -> نرفض القص كي لا يقتطع نصف الورقة
+                return null;
+            }
+            if (combined < minSideScore) minSideScore = combined;
+            sumEdgeSupport += edgeRatio;
+            sumBoundaryContrast += stepRatio;
+        }
+
+        if (nonBorderSides == 0) {
+            // كامل الإطار مطابق لحواف الصورة تقريباً: نقبله فقط لو يغطي >= 88%
+            return quadPolygonArea(c) >= 0.88f ? new ScoredCandidate(c, 0.56f) : null;
+        }
+        if (nonBorderSides == 1 && quadPolygonArea(c) < 0.72f) {
+            return null;
+        }
+
+        float avgEdge = sumEdgeSupport / nonBorderSides;
+        float avgStep = sumBoundaryContrast / nonBorderSides;
+        if (avgEdge < 0.28f && avgStep < 0.34f) return null;
+
+        float area = quadPolygonArea(c);
+        float areaBonus;
+        if (scanMode == SCAN_MODE_ID_CARD) {
+            areaBonus = (area >= 0.14f && area <= 0.72f) ? 1.0f : 0.72f;
+        } else {
+            // تفضيل الورقة الكاملة على أي منطقة فرعية أصغر داخلها
+            areaBonus = Math.min(1.0f, Math.max(0.35f, (area - 0.12f) / 0.58f));
+        }
+
+        float conf = Math.min(0.98f,
+            avgEdge * 0.34f
+            + avgStep * 0.24f
+            + minSideScore * 0.14f
+            + areaBonus * 0.18f
+            + Math.min(1f, Math.max(0f, fillRatio)) * 0.05f
+            + Math.min(1f, Math.max(0f, contrastSpan) / 60f) * 0.05f
+        );
+        if (conf < 0.50f) return null;
+        return new ScoredCandidate(c, conf);
+    }
+
+    private static boolean isFlushWithImageBorder(float x0, float y0, float x1, float y1) {
+        final float eps = 0.026f;
+        return (x0 <= eps && x1 <= eps)
+            || (x0 >= 1f - eps && x1 >= 1f - eps)
+            || (y0 <= eps && y1 <= eps)
+            || (y0 >= 1f - eps && y1 >= 1f - eps);
+    }
+
+    private static float[] measureSingleSideSupport(
+        float nx0, float ny0, float nx1, float ny1,
+        int[] grad, int[] closedLum, int w, int h, float[] quad
+    ) {
+        float x0 = nx0 * (w - 1), y0 = ny0 * (h - 1);
+        float x1 = nx1 * (w - 1), y1 = ny1 * (h - 1);
+        float dx = x1 - x0, dy = y1 - y0;
+        float len = Math.max(1f, (float) Math.hypot(dx, dy));
+        // المتجه العمودي للداخل بناءً على مركز المضلع
+        float mx = (quad[0] + quad[2] + quad[4] + quad[6]) * 0.25f * (w - 1);
+        float my = (quad[1] + quad[3] + quad[5] + quad[7]) * 0.25f * (h - 1);
+        float inX = -dy / len, inY = dx / len;
+        float midX = (x0 + x1) * 0.5f, midY = (y0 + y1) * 0.5f;
+        if ((mx - midX) * inX + (my - midY) * inY < 0f) {
+            inX = -inX;
+            inY = -inY;
+        }
+
+        int steps = 24;
+        int edgeHits = 0;
+        int stepHits = 0;
+        int total = 0;
+        for (int s = 1; s < steps; s++) {
+            float t = s / (float) steps;
+            int cx = Math.round(x0 + dx * t);
+            int cy = Math.round(y0 + dy * t);
+            int maxG = 0;
+            for (int oy = -2; oy <= 2; oy++) {
+                for (int ox = -2; ox <= 2; ox++) {
+                    int sx = Math.max(1, Math.min(w - 2, cx + ox));
+                    int sy = Math.max(1, Math.min(h - 2, cy + oy));
+                    int g = grad[sy * w + sx];
+                    if (g > maxG) maxG = g;
+                }
+            }
+            if (maxG >= 28) edgeHits++;
+
+            int ix = Math.max(0, Math.min(w - 1, Math.round(cx + inX * 4f)));
+            int iy = Math.max(0, Math.min(h - 1, Math.round(cy + inY * 4f)));
+            int ox = Math.max(0, Math.min(w - 1, Math.round(cx - inX * 4f)));
+            int oy = Math.max(0, Math.min(h - 1, Math.round(cy - inY * 4f)));
+            if (Math.abs(closedLum[iy * w + ix] - closedLum[oy * w + ox]) >= 9) {
+                stepHits++;
+            }
+            total++;
+        }
+        if (total == 0) return new float[]{ 0f, 0f };
+        return new float[]{ edgeHits / (float) total, stepHits / (float) total };
+    }
+
+    /**
+     * اختبارات التحقق الهندسية الصارمة لمنع القص الشريطي أو المائل أو المقتطع لجزء من المستند
+     */
+    public static boolean isValidPaperQuad(float[] c, int scanMode) {
+        if (!isConvexQuad(c)) return false;
+
+        float area = quadPolygonArea(c);
+        float minArea = (scanMode == SCAN_MODE_ID_CARD) ? 0.10f : 0.22f;
+        if (area < minArea || area > 0.985f) return false;
+
+        // فحص الترتيب الصحيح: أعلى يسار، أعلى يمين، أسفل يمين، أسفل يسار
+        float topAvgY = (c[1] + c[3]) * 0.5f;
+        float botAvgY = (c[5] + c[7]) * 0.5f;
+        float leftAvgX = (c[0] + c[6]) * 0.5f;
+        float rightAvgX = (c[2] + c[4]) * 0.5f;
+        if (botAvgY - topAvgY < (scanMode == SCAN_MODE_ID_CARD ? 0.14f : 0.24f)) return false;
+        if (rightAvgX - leftAvgX < 0.24f) return false;
+
+        double topW = Math.hypot(c[2] - c[0], c[3] - c[1]);
+        double botW = Math.hypot(c[4] - c[6], c[5] - c[7]);
+        double leftH = Math.hypot(c[6] - c[0], c[7] - c[1]);
+        double rightH = Math.hypot(c[4] - c[2], c[5] - c[3]);
+
+        double minW = Math.min(topW, botW), maxW = Math.max(topW, botW);
+        double minH = Math.min(leftH, rightH), maxH = Math.max(leftH, rightH);
+
+        if (scanMode == SCAN_MODE_ID_CARD) {
+            if (minW < 0.26 || minH < 0.16) return false;
+            if (minW / Math.max(1e-4, maxW) < 0.52 || minH / Math.max(1e-4, maxH) < 0.52) return false;
+            double aspect = ((topW + botW) * 0.5) / Math.max(1e-4, (leftH + rightH) * 0.5);
+            if (aspect < 1.05 || aspect > 2.40) return false;
+        } else {
+            // رفض قاطع للأشرطة الأفقية أو العمودية الصغيرة (مثل شريط أسفل الورقة)
+            if (minH < 0.30 || maxH < 0.36) return false;
+            if (minW < 0.28 || maxW < 0.36) return false;
+            if (minW / Math.max(1e-4, maxW) < 0.48 || minH / Math.max(1e-4, maxH) < 0.48) return false;
+            double avgW = (topW + botW) * 0.5;
+            double avgH = (leftH + rightH) * 0.5;
+            double aspect = Math.max(avgW, avgH) / Math.max(1e-4, Math.min(avgW, avgH));
+            if (aspect > 2.35) return false;
+
+            // منع اعتماد منطقة فرعية محصورة في النصف السفلي أو العلوي فقط
+            float minY = Math.min(Math.min(c[1], c[3]), Math.min(c[5], c[7]));
+            float maxY = Math.max(Math.max(c[1], c[3]), Math.max(c[5], c[7]));
+            float minX = Math.min(Math.min(c[0], c[2]), Math.min(c[4], c[6]));
+            float maxX = Math.max(Math.max(c[0], c[2]), Math.max(c[4], c[6]));
+            if (area < 0.40f && (minY > 0.40f || maxY < 0.60f || minX > 0.40f || maxX < 0.60f)) {
+                return false;
+            }
+        }
+
+        // فحص الزوايا الأربع والتوازي النسبي للأضلاع المتقابلة لمنع التشوه والميل الشديد
+        for (int i = 0; i < 4; i++) {
+            int p = ((i + 3) % 4) * 2;
+            int q = i * 2;
+            int r = ((i + 1) % 4) * 2;
+            double v1x = c[p] - c[q], v1y = c[p + 1] - c[q + 1];
+            double v2x = c[r] - c[q], v2y = c[r + 1] - c[q + 1];
+            double l1 = Math.hypot(v1x, v1y);
+            double l2 = Math.hypot(v2x, v2y);
+            if (l1 < 0.14 || l2 < 0.14) return false;
+            double cosA = (v1x * v2x + v1y * v2y) / (l1 * l2);
+            double deg = Math.toDegrees(Math.acos(Math.max(-1.0, Math.min(1.0, cosA))));
+            if (deg < 52.0 || deg > 128.0) return false;
+
+            double cross = v2x * v1y - v2y * v1x;
+            if (cross <= 0) return false;
+        }
+
+        double topAng = Math.atan2(c[3] - c[1], c[2] - c[0]);
+        double botAng = Math.atan2(c[5] - c[7], c[4] - c[6]);
+        double leftAng = Math.atan2(c[7] - c[1], c[6] - c[0]);
+        double rightAng = Math.atan2(c[5] - c[3], c[4] - c[2]);
+        if (angleDiffDeg(topAng, botAng) > 30.0 || angleDiffDeg(leftAng, rightAng) > 30.0) {
+            return false;
+        }
+        return true;
+    }
+
+    private static double angleDiffDeg(double a, double b) {
+        double d = Math.toDegrees(Math.abs(a - b)) % 360.0;
+        if (d > 180.0) d = 360.0 - d;
+        return d;
+    }
+
+    private static float computeInteriorLaplacianSharpness(int[] lum, int w, int h) {
+        long lapSum = 0L;
+        int lapCount = 0;
+        for (int y = h / 6; y < (h * 5) / 6; y++) {
+            int row = y * w;
+            for (int x = w / 6; x < (w * 5) / 6; x++) {
+                int idx = row + x;
+                int lap = Math.abs(4 * lum[idx] - lum[idx - 1] - lum[idx + 1] - lum[idx - w] - lum[idx + w]);
+                lapSum += lap;
+                lapCount++;
+            }
+        }
+        return lapCount > 0 ? (lapSum / (float) lapCount) : 0f;
+    }
+
+    /**
+     * إغلاق مورفولوجي قابل للفصل (Max ثم Min 1D) يزيل الحبر والنصوص والباركود مع إبقاء حافة الورقة سليمة
+     */
+    private static int[] morphCloseSeparable(int[] src, int w, int h, int radius) {
+        int[] dilated = morphExtremeSeparable(src, w, h, radius, true);
+        return morphExtremeSeparable(dilated, w, h, radius, false);
+    }
+
+    private static int[] morphExtremeSeparable(int[] src, int w, int h, int radius, boolean takeMax) {
+        int[] temp = new int[w * h];
+        int[] out = new int[w * h];
+        for (int y = 0; y < h; y++) {
+            int row = y * w;
+            for (int x = 0; x < w; x++) {
+                int x0 = Math.max(0, x - radius);
+                int x1 = Math.min(w - 1, x + radius);
+                int best = src[row + x0];
+                for (int kx = x0 + 1; kx <= x1; kx++) {
+                    int v = src[row + kx];
+                    if (takeMax ? (v > best) : (v < best)) best = v;
+                }
+                temp[row + x] = best;
+            }
+        }
+        for (int y = 0; y < h; y++) {
+            int y0 = Math.max(0, y - radius);
+            int y1 = Math.min(h - 1, y + radius);
+            int row = y * w;
+            for (int x = 0; x < w; x++) {
+                int best = temp[y0 * w + x];
+                for (int ky = y0 + 1; ky <= y1; ky++) {
+                    int v = temp[ky * w + x];
+                    if (takeMax ? (v > best) : (v < best)) best = v;
+                }
+                out[row + x] = best;
+            }
+        }
+        return out;
     }
 
     private static int sobelAt(int[] ch, int w, int x, int y) {
@@ -644,44 +1271,6 @@ public final class DocumentScannerEngine {
         return (long) (a[0] - o[0]) * (b[1] - o[1]) - (long) (a[1] - o[1]) * (b[0] - o[0]);
     }
 
-    private static float[] fitQuadFromHullAndEdges(List<PointF> hull, int w, int h) {
-        int iTL = 0, iTR = 0, iBR = 0, iBL = 0;
-        float minSum = Float.MAX_VALUE, maxSum = -Float.MAX_VALUE;
-        float minDiff = Float.MAX_VALUE, maxDiff = -Float.MAX_VALUE;
-
-        for (int i = 0; i < hull.size(); i++) {
-            PointF p = hull.get(i);
-            float sum = p.x + p.y;
-            float diff = p.x - p.y;
-            if (sum < minSum) { minSum = sum; iTL = i; }
-            if (sum > maxSum) { maxSum = sum; iBR = i; }
-            if (diff > maxDiff) { maxDiff = diff; iTR = i; }
-            if (diff < minDiff) { minDiff = diff; iBL = i; }
-        }
-
-        PointF tl0 = hull.get(iTL);
-        PointF tr0 = hull.get(iTR);
-        PointF br0 = hull.get(iBR);
-        PointF bl0 = hull.get(iBL);
-
-        double[] lineTop = fitSideLine(hull, tl0, tr0);
-        double[] lineRight = fitSideLine(hull, tr0, br0);
-        double[] lineBottom = fitSideLine(hull, br0, bl0);
-        double[] lineLeft = fitSideLine(hull, bl0, tl0);
-
-        PointF tl = intersectLines(lineLeft, lineTop, tl0);
-        PointF tr = intersectLines(lineTop, lineRight, tr0);
-        PointF br = intersectLines(lineRight, lineBottom, br0);
-        PointF bl = intersectLines(lineBottom, lineLeft, bl0);
-
-        return new float[]{
-            clamp01(tl.x / w), clamp01(tl.y / h),
-            clamp01(tr.x / w), clamp01(tr.y / h),
-            clamp01(br.x / w), clamp01(br.y / h),
-            clamp01(bl.x / w), clamp01(bl.y / h)
-        };
-    }
-
     private static double[] fitSideLine(List<PointF> hull, PointF p1, PointF p2) {
         double dx = p2.x - p1.x;
         double dy = p2.y - p1.y;
@@ -692,11 +1281,11 @@ public final class DocumentScannerEngine {
         double ny = dx / len;
 
         List<PointF> near = new ArrayList<PointF>();
-        double maxDist = Math.max(4.0, len * 0.08);
+        double maxDist = Math.max(3.5, len * 0.06);
         for (PointF p : hull) {
             double dist = Math.abs((p.x - p1.x) * nx + (p.y - p1.y) * ny);
             double proj = ((p.x - p1.x) * dx + (p.y - p1.y) * dy) / (len * len);
-            if (dist <= maxDist && proj >= -0.08 && proj <= 1.08) {
+            if (dist <= maxDist && proj >= -0.05 && proj <= 1.05) {
                 near.add(p);
             }
         }
@@ -724,20 +1313,17 @@ public final class DocumentScannerEngine {
         return new double[]{ a, b, c };
     }
 
-    private static PointF intersectLines(double[] l1, double[] l2, PointF fallback) {
+    private static PointF intersectLinesBounded(double[] l1, double[] l2, PointF fallback, double maxJump) {
         double det = l1[0] * l2[1] - l2[0] * l1[1];
         if (Math.abs(det) < 1e-6) return fallback;
         double x = (l1[1] * l2[2] - l2[1] * l1[2]) / det;
         double y = (l2[0] * l1[2] - l1[0] * l2[2]) / det;
-        if (Math.hypot(x - fallback.x, y - fallback.y) > 40.0) {
+        if (Double.isNaN(x) || Double.isNaN(y) || Math.hypot(x - fallback.x, y - fallback.y) > maxJump) {
             return fallback;
         }
         return new PointF((float) x, (float) y);
     }
 
-    /**
-     * تحسين موضعي اتجاهي لموضع الزوايا الأربع (±8px) مع تفضيل الحافة الخارجية بدل السطور الداخلية
-     */
     private static float[] refineQuadCornersDirectional(float[] c, int[] grad, int w, int h, int scanMode) {
         float mx = (c[0] + c[2] + c[4] + c[6]) * 0.25f * (w - 1);
         float my = (c[1] + c[3] + c[5] + c[7]) * 0.25f * (h - 1);
@@ -754,16 +1340,15 @@ public final class DocumentScannerEngine {
             int bestX = Math.round(cx);
             int bestY = Math.round(cy);
             float bestScore = -1f;
-            for (int dy = -7; dy <= 7; dy++) {
-                for (int dx = -7; dx <= 7; dx++) {
+            for (int dy = -5; dy <= 5; dy++) {
+                for (int dx = -5; dx <= 5; dx++) {
                     int nx = Math.max(1, Math.min(w - 2, Math.round(cx) + dx));
                     int ny = Math.max(1, Math.min(h - 2, Math.round(cy) + dy));
                     int g = grad[ny * w + nx];
-                    // مكافأة طفيفة للنقطة الأبعد عن المركز حتى لا تنجذب الزاوية إلى سطور النص الداخلية
                     float outwardProj = dx * ox + dy * oy;
-                    float distPenalty = (dx * dx + dy * dy) * 0.65f;
-                    float score = g + Math.max(-4f, outwardProj * 3.5f) - distPenalty;
-                    if (g >= 42 && score > bestScore) {
+                    float distPenalty = (dx * dx + dy * dy) * 0.75f;
+                    float score = g + Math.max(-3f, outwardProj * 3.0f) - distPenalty;
+                    if (g >= 28 && score > bestScore) {
                         bestScore = score;
                         bestX = nx;
                         bestY = ny;
@@ -797,30 +1382,6 @@ public final class DocumentScannerEngine {
         return out;
     }
 
-    private static boolean isValidPaperQuad(float[] c, int scanMode) {
-        float area = quadPolygonArea(c);
-        float minArea = (scanMode == SCAN_MODE_ID_CARD) ? 0.055f : 0.10f;
-        if (area < minArea || area > 0.96f) return false;
-
-        for (int i = 0; i < 4; i++) {
-            int p = ((i + 3) % 4) * 2;
-            int q = i * 2;
-            int r = ((i + 1) % 4) * 2;
-            double v1x = c[p] - c[q], v1y = c[p + 1] - c[q + 1];
-            double v2x = c[r] - c[q], v2y = c[r + 1] - c[q + 1];
-            double l1 = Math.hypot(v1x, v1y);
-            double l2 = Math.hypot(v2x, v2y);
-            if (l1 < 0.12 || l2 < 0.12) return false;
-            double cosA = (v1x * v2x + v1y * v2y) / (l1 * l2);
-            double deg = Math.toDegrees(Math.acos(Math.max(-1.0, Math.min(1.0, cosA))));
-            if (deg < 35.0 || deg > 145.0) return false;
-
-            double cross = v2x * v1y - v2y * v1x;
-            if (cross <= 0) return false;
-        }
-        return true;
-    }
-
     public static float quadPolygonArea(float[] c) {
         float s = 0f;
         for (int i = 0; i < 4; i++) {
@@ -828,34 +1389,6 @@ public final class DocumentScannerEngine {
             s += c[i * 2] * c[j * 2 + 1] - c[j * 2] * c[i * 2 + 1];
         }
         return Math.abs(s) * 0.5f;
-    }
-
-    private static float measureQuadEdgeSupport(float[] c, int[] grad, int w, int h) {
-        int strongCount = 0;
-        int totalSamples = 0;
-        for (int side = 0; side < 4; side++) {
-            int next = (side + 1) % 4;
-            float x0 = c[side * 2] * (w - 1), y0 = c[side * 2 + 1] * (h - 1);
-            float x1 = c[next * 2] * (w - 1), y1 = c[next * 2 + 1] * (h - 1);
-            int steps = 20;
-            for (int s = 1; s < steps; s++) {
-                float t = s / (float) steps;
-                int cx = Math.round(x0 + (x1 - x0) * t);
-                int cy = Math.round(y0 + (y1 - y0) * t);
-                int maxG = 0;
-                for (int dy = -2; dy <= 2; dy++) {
-                    for (int dx = -2; dx <= 2; dx++) {
-                        int sx = Math.max(1, Math.min(w - 2, cx + dx));
-                        int sy = Math.max(1, Math.min(h - 2, cy + dy));
-                        int g = grad[sy * w + sx];
-                        if (g > maxG) maxG = g;
-                    }
-                }
-                totalSamples++;
-                if (maxG >= 48) strongCount++;
-            }
-        }
-        return totalSamples > 0 ? (strongCount / (float) totalSamples) : 0f;
     }
 
     private static float clamp01(float v) {
@@ -1189,9 +1722,9 @@ public final class DocumentScannerEngine {
             }
         }
 
-        Bitmap dewarped = (scanMode == SCAN_MODE_ID_CARD)
-            ? warped
-            : dewarpCurvedPageIfNeeded(warped, scanMode);
+        Bitmap dewarped = (scanMode == SCAN_MODE_BOOK)
+            ? dewarpCurvedPageIfNeeded(warped, scanMode)
+            : warped;
         if (dewarped != warped) warped.recycle();
 
         int normRot = ((rotationDeg % 360) + 360) % 360;
@@ -1215,10 +1748,9 @@ public final class DocumentScannerEngine {
     }
 
     /**
-     * معالجة الصورة موضعياً (In-Place Strip Processing) لتخفيض استهلاك الذاكرة بأكثر من 85%:
-     * - بدون أي مصفوفات double[] أو int[] كاملة بحجم الصورة
-     * - حساب خلفية الإضاءة بأخذ عينات صفية من 20×26 خلية باستخدام صف واحد فقط
-     * - تطبيق التوازن والتنعيم والحِدة والفلتر على شرائح أفقية (STRIP_H = 96) وإعادة الكتابة داخل نفس الـ Bitmap
+     * معالجة الصورة موضعياً (In-Place Strip Processing):
+     * - FILTER_ORIGINAL يحافظ على البكسلات الأصلية 100% دون أي تعديل تلقائي على الأختام أو الكتابة الخفيفة
+     * - التحسين الذكي والرمادي يحميان الألوان والأختام والتوقيعات والنصوص الدقيقة
      */
     public static void applyDocumentFilterInPlace(Bitmap work, int filterMode, int brightnessAdjust, int scanMode) {
         if (work == null || work.isRecycled()) return;
@@ -1227,7 +1759,27 @@ public final class DocumentScannerEngine {
         int h = work.getHeight();
         if (w < 8 || h < 8) return;
 
-        // 1) تقدير شبكة الإضاءة الخلفية باستخدام مخزن صف واحد فقط (~7 KB بدل ~14 MB)
+        if (filterMode == FILTER_ORIGINAL) {
+            if (clampedBright == 0) return;
+            int[] strip = new int[w * STRIP_H];
+            int delta = Math.round(clampedBright * 1.15f);
+            for (int yStart = 0; yStart < h; yStart += STRIP_H) {
+                int curH = Math.min(STRIP_H, h - yStart);
+                work.getPixels(strip, 0, w, 0, yStart, w, curH);
+                int total = w * curH;
+                for (int i = 0; i < total; i++) {
+                    int c = strip[i];
+                    int r = Math.max(0, Math.min(255, ((c >> 16) & 0xFF) + delta));
+                    int g = Math.max(0, Math.min(255, ((c >> 8) & 0xFF) + delta));
+                    int b = Math.max(0, Math.min(255, (c & 0xFF) + delta));
+                    strip[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
+                }
+                work.setPixels(strip, 0, w, 0, yStart, w, curH);
+            }
+            return;
+        }
+
+        // 1) تقدير شبكة الإضاءة الخلفية باستخدام مخزن صف واحد فقط (~7 KB)
         final int cols = 20;
         final int rows = 26;
         float[] bgR = new float[cols * rows];
@@ -1277,9 +1829,9 @@ public final class DocumentScannerEngine {
                     Arrays.sort(sg, 0, cnt);
                     Arrays.sort(sb, 0, cnt);
                     int pIdx = Math.min(cnt - 1, (int) (cnt * 0.90f));
-                    bgR[cellIdx] = Math.max(92f, sr[pIdx]);
-                    bgG[cellIdx] = Math.max(92f, sg[pIdx]);
-                    bgB[cellIdx] = Math.max(92f, sb[pIdx]);
+                    bgR[cellIdx] = Math.max(105f, sr[pIdx]);
+                    bgG[cellIdx] = Math.max(105f, sg[pIdx]);
+                    bgB[cellIdx] = Math.max(105f, sb[pIdx]);
                 } else {
                     bgR[cellIdx] = 238f;
                     bgG[cellIdx] = 238f;
@@ -1292,12 +1844,13 @@ public final class DocumentScannerEngine {
         float[] smBgG = smoothBgGrid(bgG, cols, rows);
         float[] smBgB = smoothBgGrid(bgB, cols, rows);
 
-        float targetPaper = Math.max(210f, Math.min(255f, 245f + clampedBright * 0.45f));
+        float targetPaper = Math.max(210f, Math.min(255f, 244f + clampedBright * 0.45f));
         boolean gentleMode = (filterMode == FILTER_NATURAL || scanMode == SCAN_MODE_ID_CARD);
+        boolean legalColorSafe = (filterMode == FILTER_ORIGINAL_COLOR);
         float bgNoiseSum = 0f;
         int bgNoiseCount = 0;
 
-        // 2) المرحلة الأولى بالبلاط: تسوية الإضاءة وحماية الأختام والتوقيعات موضعياً داخل work
+        // 2) تسوية الإضاءة مع حماية كاملة للكتابة الخفيفة والأختام والتوقيعات
         int[] normStrip = new int[w * STRIP_H];
         for (int yStart = 0; yStart < h; yStart += STRIP_H) {
             int curH = Math.min(STRIP_H, h - yStart);
@@ -1331,13 +1884,13 @@ public final class DocumentScannerEngine {
                     float origG = (c >> 8) & 0xFF;
                     float origB = c & 0xFF;
 
-                    float wbGainR = targetPaper / Math.max(85f, lBgR);
-                    float wbGainG = targetPaper / Math.max(85f, lBgG);
-                    float wbGainB = targetPaper / Math.max(85f, lBgB);
-                    float neutralGain = targetPaper / Math.max(85f, lBgLum);
+                    float wbGainR = targetPaper / Math.max(95f, lBgR);
+                    float wbGainG = targetPaper / Math.max(95f, lBgG);
+                    float wbGainB = targetPaper / Math.max(95f, lBgB);
+                    float neutralGain = targetPaper / Math.max(95f, lBgLum);
 
-                    float maxGain = gentleMode ? 1.45f : 2.10f;
-                    float wbBlend = gentleMode ? 0.45f : 0.75f;
+                    float maxGain = (gentleMode || legalColorSafe) ? 1.52f : 1.90f;
+                    float wbBlend = (gentleMode || legalColorSafe) ? 0.48f : 0.68f;
                     float gainR = Math.min(maxGain, wbGainR * wbBlend + neutralGain * (1f - wbBlend));
                     float gainG = Math.min(maxGain, wbGainG * wbBlend + neutralGain * (1f - wbBlend));
                     float gainB = Math.min(maxGain, wbGainB * wbBlend + neutralGain * (1f - wbBlend));
@@ -1351,27 +1904,43 @@ public final class DocumentScannerEngine {
                     float relToWhite = lum / targetPaper;
 
                     if (gentleMode) {
-                        // وضع الهوية/الطبيعي: يزيل اصفرار الخلفية بلطف فقط ويحمي الأختام والصور تماماً
-                        if (chroma < 18f && relToWhite > 0.93f) {
-                            float cleanFactor = Math.min(1f, (relToWhite - 0.93f) / 0.06f);
+                        if (chroma < 16f && relToWhite > 0.94f) {
+                            float cleanFactor = Math.min(1f, (relToWhite - 0.94f) / 0.05f);
                             float liftTarget = 246f + clampedBright * 0.2f;
-                            nr += (liftTarget - nr) * cleanFactor * 0.45f;
-                            ng += (liftTarget - ng) * cleanFactor * 0.45f;
-                            nb += (liftTarget - nb) * cleanFactor * 0.45f;
+                            nr += (liftTarget - nr) * cleanFactor * 0.40f;
+                            ng += (liftTarget - ng) * cleanFactor * 0.40f;
+                            nb += (liftTarget - nb) * cleanFactor * 0.40f;
                         }
-                    } else {
-                        // المستندات القانونية: تبييض الخلفية المحايدة + حماية الأختام الحمراء والتوقيعات الزرقاء
-                        if (chroma < 22f && relToWhite > 0.90f) {
+                    } else if (legalColorSafe) {
+                        // تحسين قانوني متوازن: ينظف الورقة فقط فوق 93.5% مع إبقاء الكتابة الباهتة والأختام سليمة
+                        if (chroma < 16f && relToWhite > 0.935f) {
                             bgNoiseSum += Math.abs(lum - targetPaper);
                             bgNoiseCount++;
-                            float cleanFactor = Math.min(1f, (relToWhite - 0.90f) / 0.08f);
+                            float cleanFactor = Math.min(1f, (relToWhite - 0.935f) / 0.055f);
+                            float liftTarget = 247f + clampedBright * 0.22f;
+                            nr += (liftTarget - nr) * cleanFactor * 0.55f;
+                            ng += (liftTarget - ng) * cleanFactor * 0.55f;
+                            nb += (liftTarget - nb) * cleanFactor * 0.55f;
+                        } else if (lum < 185f) {
+                            float inkBoost = (185f - lum) * 0.14f;
+                            float factor = chroma < 20f ? 1f : 0.22f;
+                            nr = Math.max(0f, nr - inkBoost * factor);
+                            ng = Math.max(0f, ng - inkBoost * factor);
+                            nb = Math.max(0f, nb - inkBoost * factor);
+                        }
+                    } else {
+                        // رمادي / أبيض وأسود: تنظيف أوضح مع إبقاء النصوص الخفيفة مرئية
+                        if (chroma < 20f && relToWhite > 0.915f) {
+                            bgNoiseSum += Math.abs(lum - targetPaper);
+                            bgNoiseCount++;
+                            float cleanFactor = Math.min(1f, (relToWhite - 0.915f) / 0.075f);
                             float liftTarget = 247f + clampedBright * 0.25f;
-                            nr += (liftTarget - nr) * cleanFactor * 0.80f;
-                            ng += (liftTarget - ng) * cleanFactor * 0.80f;
-                            nb += (liftTarget - nb) * cleanFactor * 0.80f;
-                        } else if (lum < 166f) {
-                            float inkBoost = (166f - lum) * 0.13f;
-                            float factor = chroma < 24f ? 1f : 0.28f;
+                            nr += (liftTarget - nr) * cleanFactor * 0.70f;
+                            ng += (liftTarget - ng) * cleanFactor * 0.70f;
+                            nb += (liftTarget - nb) * cleanFactor * 0.70f;
+                        } else if (lum < 178f) {
+                            float inkBoost = (178f - lum) * 0.14f;
+                            float factor = chroma < 24f ? 1f : 0.26f;
                             nr = Math.max(0f, nr - inkBoost * factor);
                             ng = Math.max(0f, ng - inkBoost * factor);
                             nb = Math.max(0f, nb - inkBoost * factor);
@@ -1387,17 +1956,15 @@ public final class DocumentScannerEngine {
             work.setPixels(normStrip, 0, w, 0, yStart, w, curH);
         }
 
-        // 3) تنعيم انتقائي للخلفية + تدرج رمادي (عند طلبه) عبر مخزن دائري من 3 صفوف فقط (22 KB)
+        // 3) تنعيم انتقائي لطيف + تحويل رمادي عند الطلب
         float avgPaperNoise = bgNoiseCount > 0 ? (bgNoiseSum / bgNoiseCount) : 6f;
-        int denoiseThresh = gentleMode ? 8 : (avgPaperNoise > 9f ? 18 : 11);
+        int denoiseThresh = (gentleMode || legalColorSafe) ? 7 : (avgPaperNoise > 9f ? 14 : 9);
         apply3RowRangeDenoiseInPlace(work, w, h, denoiseThresh, filterMode == FILTER_GRAYSCALE);
 
         if (filterMode == FILTER_BLACK_WHITE) {
-            // 4 أ) Sauvola بالشرائح (Strip Integral): يستهلك ~3.8 MB بدل ~54.8 MB وبنفس النتيجة الحسابية تماماً
             applyStripSauvolaBwInPlace(work, w, h);
         } else {
-            // 4 ب) حدة تكيفية مضادة للهالات عبر مخزن دائري من 3 صفوف فقط (22 KB)
-            float sharpAmount = gentleMode ? 0.14f : (avgPaperNoise > 10f ? 0.16f : 0.24f);
+            float sharpAmount = (gentleMode || legalColorSafe) ? 0.15f : (avgPaperNoise > 10f ? 0.16f : 0.22f);
             apply3RowAdaptiveSharpenInPlace(work, w, h, sharpAmount);
         }
     }
