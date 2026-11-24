@@ -154,6 +154,173 @@ async function createSkewedSampleDocumentBlob(pageNum: number): Promise<Blob> {
   return await new Promise<Blob>((res) => c.toBlob((b) => res(b!), 'image/jpeg', 0.92));
 }
 
+export interface MagnifyingLensProps {
+  imageUrl: string;
+  preloadedImage?: HTMLImageElement | null;
+  corner: { x: number; y: number };
+  stageWidth: number;
+  stageHeight: number;
+  zoom?: number;
+}
+
+/**
+ * عدسة تكبير فورية (MagnifyingLens) تظهر أثناء سحب زوايا القص اليدوي،
+ * وتتموضع بذكاء بعيداً عن موضع الإصبع مع تحديث إحداثيات الزاوية في الوقت الفعلي.
+ */
+export const MagnifyingLens: React.FC<MagnifyingLensProps> = ({
+  imageUrl,
+  preloadedImage,
+  corner,
+  stageWidth,
+  stageHeight,
+  zoom = 2.5,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [fallbackImage, setFallbackImage] = useState<HTMLImageElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (preloadedImage && preloadedImage.complete && (preloadedImage.naturalWidth || preloadedImage.width) > 0) {
+      setFallbackImage(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled) setFallbackImage(img);
+    };
+    img.src = imageUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl, preloadedImage]);
+
+  const activeImg =
+    preloadedImage && preloadedImage.complete && (preloadedImage.naturalWidth || preloadedImage.width) > 0
+      ? preloadedImage
+      : fallbackImage;
+
+  useEffect(() => {
+    if (!canvasRef.current || !activeImg) return;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+    }
+
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const iw = activeImg.naturalWidth || activeImg.width;
+      const ih = activeImg.naturalHeight || activeImg.height;
+      if (iw <= 0 || ih <= 0) return;
+
+      const size = 192;
+      if (canvas.width !== size) canvas.width = size;
+      if (canvas.height !== size) canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.fillStyle = '#0F172A';
+      ctx.fillRect(0, 0, size, size);
+
+      const cx = corner.x * iw;
+      const cy = corner.y * ih;
+      const baseSpan = Math.max(52, Math.min(iw, ih) * (0.55 / Math.max(1.5, zoom)));
+      const halfSpan = baseSpan * 0.5;
+      const sx0 = cx - halfSpan;
+      const sy0 = cy - halfSpan;
+
+      const clipLeft = Math.max(0, sx0);
+      const clipTop = Math.max(0, sy0);
+      const clipRight = Math.min(iw, sx0 + baseSpan);
+      const clipBottom = Math.min(ih, sy0 + baseSpan);
+
+      if (clipRight > clipLeft && clipBottom > clipTop) {
+        const dx = ((clipLeft - sx0) / baseSpan) * size;
+        const dy = ((clipTop - sy0) / baseSpan) * size;
+        const dw = ((clipRight - clipLeft) / baseSpan) * size;
+        const dh = ((clipBottom - clipTop) / baseSpan) * size;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(
+          activeImg,
+          clipLeft,
+          clipTop,
+          clipRight - clipLeft,
+          clipBottom - clipTop,
+          dx,
+          dy,
+          dw,
+          dh
+        );
+      }
+
+      const mid = size * 0.5;
+      ctx.strokeStyle = 'rgba(45, 212, 191, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, mid);
+      ctx.lineTo(mid - 14, mid);
+      ctx.moveTo(mid + 14, mid);
+      ctx.lineTo(size, mid);
+      ctx.moveTo(mid, 0);
+      ctx.lineTo(mid, mid - 14);
+      ctx.moveTo(mid, mid + 14);
+      ctx.lineTo(mid, size);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#0F2557';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(mid, mid, 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#FDE047';
+      ctx.beginPath();
+      ctx.arc(mid, mid, 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [activeImg, corner.x, corner.y, zoom]);
+
+  const lensRadius = 48; // 96px diameter
+  const w = stageWidth > 0 ? stageWidth : 280;
+  const h = stageHeight > 0 ? stageHeight : 360;
+  const cornerPxX = corner.x * w;
+  const cornerPxY = corner.y * h;
+
+  // إزاحة ذكية فوق الإصبع افتراضياً، ومع القرب من الحافة العلوية تنزاح قطرياً بعيداً عن الإصبع ومقبض السحب
+  const nearTop = cornerPxY < lensRadius + 64;
+  let targetX = cornerPxX;
+  let targetY = cornerPxY - 78;
+
+  if (nearTop) {
+    targetY = cornerPxY + 76;
+    targetX = corner.x < 0.5 ? cornerPxX + 74 : cornerPxX - 74;
+  }
+
+  const clampedX = Math.max(lensRadius + 4, Math.min(Math.max(lensRadius + 4, w - lensRadius - 4), targetX));
+  const clampedY = Math.max(lensRadius - 12, Math.min(Math.max(lensRadius, h - lensRadius - 4), targetY));
+
+  return (
+    <div
+      data-testid="crop-magnifying-loupe"
+      style={{
+        left: `${clampedX}px`,
+        top: `${clampedY}px`,
+      }}
+      className="absolute -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full overflow-hidden border-[3px] border-[#0F2557] ring-2 ring-[#FDE047] shadow-2xl pointer-events-none z-50 bg-slate-900 will-change-[left,top]"
+    >
+      <canvas ref={canvasRef} className="w-full h-full block" />
+    </div>
+  );
+};
+
 export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
   onBackHome,
   onShowToast,
@@ -191,10 +358,10 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
   const [isManualCropOpen, setIsManualCropOpen] = useState(false);
   const [editingCorners, setEditingCorners] = useState<QuadCorners>(FULL_FRAME_QUAD);
   const [draggingCornerIdx, setDraggingCornerIdx] = useState<number | null>(null);
+  const [cropStageSize, setCropStageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const cropStageRef = useRef<HTMLDivElement>(null);
   const cropImgRef = useRef<HTMLImageElement | null>(null);
-  const loupeCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // حالة الحفظ والتصدير (المرحلة 3)
   const [isSaving, setIsSaving] = useState(false);
@@ -673,10 +840,28 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
     onShowToast('تم تطبيق القص وتصحيح المنظور');
   };
 
+  const handleCropPointerDown = (idx: number, e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch (_) {}
+    if (cropStageRef.current) {
+      const rect = cropStageRef.current.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setCropStageSize({ width: rect.width, height: rect.height });
+      }
+    }
+    setDraggingCornerIdx(idx);
+  };
+
   const handleCropPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (draggingCornerIdx === null || !cropStageRef.current) return;
     const rect = cropStageRef.current.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
+    if (rect.width !== cropStageSize.width || rect.height !== cropStageSize.height) {
+      setCropStageSize({ width: rect.width, height: rect.height });
+    }
     const nx = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
     const ny = Math.max(0.0, Math.min(1.0, (e.clientY - rect.top) / rect.height));
     setEditingCorners((prev) => {
@@ -864,78 +1049,15 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
   }, [isManualCropOpen, currentPage?.originalUrl]);
 
   useEffect(() => {
-    if (!activeCropCorner || !loupeCanvasRef.current || !cropImgRef.current) return;
-    const canvas = loupeCanvasRef.current;
-    const img = cropImgRef.current;
-    const iw = img.naturalWidth || img.width;
-    const ih = img.naturalHeight || img.height;
-    if (iw <= 0 || ih <= 0) return;
-
-    const size = 192;
-    if (canvas.width !== size) canvas.width = size;
-    if (canvas.height !== size) canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.fillStyle = '#0F172A';
-    ctx.fillRect(0, 0, size, size);
-
-    const cx = activeCropCorner.x * iw;
-    const cy = activeCropCorner.y * ih;
-    const srcSpan = Math.max(48, Math.min(iw, ih) * 0.22);
-    const halfSpan = srcSpan * 0.5;
-    const sx0 = cx - halfSpan;
-    const sy0 = cy - halfSpan;
-
-    const clipLeft = Math.max(0, sx0);
-    const clipTop = Math.max(0, sy0);
-    const clipRight = Math.min(iw, sx0 + srcSpan);
-    const clipBottom = Math.min(ih, sy0 + srcSpan);
-
-    if (clipRight > clipLeft && clipBottom > clipTop) {
-      const dx = ((clipLeft - sx0) / srcSpan) * size;
-      const dy = ((clipTop - sy0) / srcSpan) * size;
-      const dw = ((clipRight - clipLeft) / srcSpan) * size;
-      const dh = ((clipBottom - clipTop) / srcSpan) * size;
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(
-        img,
-        clipLeft,
-        clipTop,
-        clipRight - clipLeft,
-        clipBottom - clipTop,
-        dx,
-        dy,
-        dw,
-        dh
-      );
-    }
-
-    const mid = size * 0.5;
-    ctx.strokeStyle = 'rgba(45, 212, 191, 0.88)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, mid);
-    ctx.lineTo(mid - 14, mid);
-    ctx.moveTo(mid + 14, mid);
-    ctx.lineTo(size, mid);
-    ctx.moveTo(mid, 0);
-    ctx.lineTo(mid, mid - 14);
-    ctx.moveTo(mid, mid + 14);
-    ctx.lineTo(mid, size);
-    ctx.stroke();
-
-    ctx.strokeStyle = '#0F2557';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(mid, mid, 6, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = '#FDE047';
-    ctx.beginPath();
-    ctx.arc(mid, mid, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }, [activeCropCorner]);
+    if (draggingCornerIdx === null) return;
+    const stopDrag = () => setDraggingCornerIdx(null);
+    window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
+    return () => {
+      window.removeEventListener('pointerup', stopDrag);
+      window.removeEventListener('pointercancel', stopDrag);
+    };
+  }, [draggingCornerIdx]);
 
   return (
     <div dir="rtl" className="flex flex-col h-full -mx-3 -my-2.5 bg-slate-50 relative select-none">
@@ -1706,8 +1828,7 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
             onPointerMove={handleCropPointerMove}
             onPointerUp={() => setDraggingCornerIdx(null)}
             onPointerCancel={() => setDraggingCornerIdx(null)}
-            onPointerLeave={() => setDraggingCornerIdx(null)}
-            className="flex-1 bg-black rounded-2xl overflow-hidden flex items-center justify-center p-2 touch-none select-none min-h-0"
+            className="flex-1 bg-black rounded-2xl overflow-visible flex items-center justify-center p-2 touch-none select-none min-h-0"
           >
             <div
               ref={cropStageRef}
@@ -1733,9 +1854,9 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
                 <div
                   key={idx}
                   data-testid={`crop-corner-${idx}`}
-                  onPointerDown={() => setDraggingCornerIdx(idx)}
+                  onPointerDown={(e) => handleCropPointerDown(idx, e)}
                   style={{ left: `${pt.x * 100}%`, top: `${pt.y * 100}%` }}
-                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#FDE047] border-2 border-[#0F2557] shadow-lg cursor-grab active:cursor-grabbing ${
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#FDE047] border-2 border-[#0F2557] shadow-lg cursor-grab active:cursor-grabbing will-change-[left,top] ${
                     draggingCornerIdx === idx ? 'w-7 h-7 scale-110 ring-2 ring-teal-400' : 'w-6 h-6'
                   }`}
                 />
@@ -1743,19 +1864,14 @@ export const DocumentScannerView: React.FC<DocumentScannerViewProps> = ({
 
               {/* عدسة التكبير الدائرية أثناء سحب أي زاوية */}
               {activeCropCorner && (
-                <div
-                  data-testid="crop-magnifying-loupe"
-                  style={{
-                    left: `${Math.max(16, Math.min(84, activeCropCorner.x * 100))}%`,
-                    top:
-                      activeCropCorner.y < 0.28
-                        ? `calc(${activeCropCorner.y * 100}% + 68px)`
-                        : `calc(${activeCropCorner.y * 100}% - 68px)`,
-                  }}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full overflow-hidden border-[3px] border-[#0F2557] ring-2 ring-[#FDE047] shadow-2xl pointer-events-none z-50 bg-slate-900"
-                >
-                  <canvas ref={loupeCanvasRef} className="w-full h-full block" />
-                </div>
+                <MagnifyingLens
+                  imageUrl={currentPage.originalUrl}
+                  preloadedImage={cropImgRef.current}
+                  corner={activeCropCorner}
+                  stageWidth={cropStageSize.width}
+                  stageHeight={cropStageSize.height}
+                  zoom={2.5}
+                />
               )}
             </div>
           </div>

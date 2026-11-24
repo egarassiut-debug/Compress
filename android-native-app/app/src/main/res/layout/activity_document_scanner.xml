@@ -4,25 +4,30 @@
     android:layout_height="match_parent"
     android:layoutDirection="rtl"
     android:orientation="vertical"
-    android:background="#0F172A">
+    android:background="#0B1220">
 
-    <!-- شريط العنوان العلوي -->
+    <!-- الشريط العلوي المختصر والواضح -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#0F766E"
+        android:background="#0F172A"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="10dp">
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
 
         <Button
             android:id="@+id/btn_scanner_back"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="الرئيسية"
+            android:layout_height="34dp"
+            android:minWidth="56dp"
+            android:text="إغلاق"
             android:textColor="#FFFFFF"
-            android:background="@drawable/bg_icon_box"
-            android:textSize="11.5sp" />
+            android:background="@drawable/bg_scanner_pill_dark"
+            android:textSize="11sp"
+            android:layout_marginEnd="6dp" />
 
         <TextView
             android:id="@+id/tv_scanner_title"
@@ -30,68 +35,59 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="تصوير وتجميع المستندات"
-            android:textColor="#FFFFFF"
-            android:textSize="13.5sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="سكانر ضغطة"
+            android:textColor="#F8FAFC"
+            android:textSize="13sp"
             android:textStyle="bold" />
 
         <Button
-            android:id="@+id/btn_scanner_mode"
+            android:id="@+id/btn_flash_toggle"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="تلقائي"
-            android:textColor="#09183B"
-            android:background="@drawable/bg_share_button"
-            android:textSize="11.5sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <!-- مؤشر المراحل الثلاث -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#09183B"
-        android:orientation="horizontal"
-        android:paddingLeft="8dp"
-        android:paddingRight="8dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp">
+            android:layout_height="34dp"
+            android:minWidth="74dp"
+            android:text="فلاش: إيقاف"
+            android:textColor="#E2E8F0"
+            android:background="@drawable/bg_scanner_pill_dark"
+            android:textSize="10.5sp"
+            android:layout_marginStart="4dp" />
 
         <Button
-            android:id="@+id/btn_step_capture"
-            android:layout_width="0dp"
-            android:layout_height="32dp"
-            android:layout_weight="1"
-            android:text="1. التصوير"
-            android:textColor="#09183B"
-            android:background="@drawable/bg_share_button"
+            android:id="@+id/btn_hd_toggle"
+            android:layout_width="42dp"
+            android:layout_height="34dp"
+            android:text="HD"
+            android:textColor="#94A3B8"
+            android:background="@drawable/bg_scanner_pill_dark"
             android:textSize="11sp"
             android:textStyle="bold"
-            android:layout_marginEnd="4dp" />
+            android:layout_marginStart="4dp" />
 
         <Button
-            android:id="@+id/btn_step_review"
-            android:layout_width="0dp"
-            android:layout_height="32dp"
-            android:layout_weight="1"
-            android:text="2. المراجعة"
-            android:textColor="#FFFFFF"
-            android:background="@drawable/bg_icon_box"
-            android:textSize="11sp"
-            android:layout_marginEnd="4dp" />
+            android:id="@+id/btn_help_guide"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:text="؟"
+            android:textColor="#FDE047"
+            android:background="@drawable/bg_scanner_pill_dark"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginStart="4dp" />
 
         <Button
-            android:id="@+id/btn_step_export"
-            android:layout_width="0dp"
-            android:layout_height="32dp"
-            android:layout_weight="1"
-            android:text="3. الحفظ"
+            android:id="@+id/btn_more_settings"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:text="⋮"
             android:textColor="#FFFFFF"
-            android:background="@drawable/bg_icon_box"
-            android:textSize="11sp" />
+            android:background="@drawable/bg_scanner_pill_dark"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:layout_marginStart="4dp" />
     </LinearLayout>
 
-    <!-- حاوية العرض الرئيسية -->
+    <!-- حاوية العرض الرئيسية (تتطابق أبعاد المعاينة فيها مع نسبة الكاميرا) -->
     <FrameLayout
         android:id="@+id/scanner_stage_container"
         android:layout_width="match_parent"
@@ -102,18 +98,21 @@
         <SurfaceView
             android:id="@+id/camera_surface"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:layout_gravity="center" />
 
         <com.example.legal_file_compressor.ScannerOverlayView
             android:id="@+id/scanner_overlay_view"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:layout_gravity="center" />
 
         <ImageView
             android:id="@+id/iv_review_preview"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scaleType="fitCenter"
+            android:background="#0F172A"
             android:visibility="gone"
             android:contentDescription="@null" />
 
@@ -121,7 +120,42 @@
             android:id="@+id/crop_overlay_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="#0F172A"
             android:visibility="gone" />
+
+        <com.example.legal_file_compressor.SignaturePlacementView
+            android:id="@+id/signature_placement_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#0F172A"
+            android:visibility="gone" />
+
+        <!-- لوحة رسم التوقيع أوفلاين -->
+        <LinearLayout
+            android:id="@+id/signature_pad_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#F1F5F9"
+            android:padding="14dp"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ارسم توقيعك بالإصبع داخل الإطار (محلي 100%)"
+                android:textColor="#0F172A"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:layout_marginBottom="10dp" />
+
+            <com.example.legal_file_compressor.SignaturePadView
+                android:id="@+id/signature_pad_view"
+                android:layout_width="match_parent"
+                android:layout_height="240dp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_stability_hint"
@@ -133,11 +167,80 @@
             android:paddingRight="14dp"
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
-            android:background="@drawable/bg_toast_navy"
-            android:text="وجّه الكاميرا نحو الورقة لاكتشاف حدودها تلقائياً"
+            android:background="@drawable/bg_scanner_pill_dark"
+            android:text="وجّه الكاميرا نحو المستند"
             android:textColor="#FDE047"
             android:textSize="11.5sp"
             android:visibility="visible" />
+
+        <!-- بطاقة عرض نتيجة قراءة QR والباركود محلياً (عرض نصي فقط دون فتح تلقائي) -->
+        <LinearLayout
+            android:id="@+id/qr_result_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_margin="12dp"
+            android:background="@drawable/bg_scanner_pill_dark"
+            android:orientation="vertical"
+            android:padding="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_qr_format"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="رمز QR"
+                android:textColor="#5EEAD4"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_qr_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:maxLines="5"
+                android:textIsSelectable="true"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tv_qr_kind_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#FDE047"
+                android:textSize="10.5sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <Button
+                    android:id="@+id/btn_qr_copy"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="نسخ المحتوى"
+                    android:textColor="#09183B"
+                    android:background="@drawable/bg_share_button"
+                    android:textSize="11.5sp"
+                    android:textStyle="bold"
+                    android:layout_marginEnd="6dp" />
+
+                <Button
+                    android:id="@+id/btn_qr_rescan"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="مسح رمز آخر"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_scanner_pill_active"
+                    android:textSize="11.5sp" />
+            </LinearLayout>
+        </LinearLayout>
 
         <!-- المرحلة 3: شاشة الحفظ والتصدير المستقلة -->
         <ScrollView
@@ -154,7 +257,6 @@
                 android:orientation="vertical"
                 android:padding="14dp">
 
-                <!-- ملخص الصفحات الجاهزة -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -177,12 +279,11 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="الهدف: أقل من 500 كيلوبايت مع الحفاظ التام على وضوح النصوص والأختام"
+                        android:text="حفظ متوازن يحافظ على وضوح النصوص والأختام والتوقيعات"
                         android:textColor="#475569"
                         android:textSize="11.5sp" />
                 </LinearLayout>
 
-                <!-- خيارات التصدير -->
                 <LinearLayout
                     android:id="@+id/layout_export_options"
                     android:layout_width="match_parent"
@@ -192,7 +293,7 @@
                     <Button
                         android:id="@+id/btn_save_images_only"
                         android:layout_width="match_parent"
-                        android:layout_height="56dp"
+                        android:layout_height="54dp"
                         android:text="1. حفظ الصور بالمعرض (أقل من 500 KB)"
                         android:textColor="#FFFFFF"
                         android:background="@drawable/bg_card_blue"
@@ -203,7 +304,7 @@
                     <Button
                         android:id="@+id/btn_save_pdf_only"
                         android:layout_width="match_parent"
-                        android:layout_height="56dp"
+                        android:layout_height="54dp"
                         android:text="2. حفظ PDF موحد بالتنزيلات (أقل من 500 KB)"
                         android:textColor="#FFFFFF"
                         android:background="@drawable/bg_card_teal"
@@ -212,7 +313,6 @@
                         android:layout_marginBottom="12dp" />
                 </LinearLayout>
 
-                <!-- لوحة التأكيد بعد الحفظ الناجح -->
                 <LinearLayout
                     android:id="@+id/layout_post_save_panel"
                     android:layout_width="match_parent"
@@ -236,7 +336,6 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="تم حفظ المستند بنجاح."
                         android:textColor="#047857"
                         android:textSize="12sp"
                         android:layout_marginBottom="12dp" />
@@ -266,7 +365,7 @@
                         android:id="@+id/btn_start_new_scan"
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
-                        android:text="بدء عملية تصوير جديدة"
+                        android:text="بدء عملية مسح جديدة"
                         android:textColor="#09183B"
                         android:background="@drawable/bg_share_button"
                         android:textSize="12.5sp"
@@ -276,73 +375,154 @@
         </ScrollView>
     </FrameLayout>
 
-    <!-- أزرار التحكم السفلية -->
+    <!-- منطقة التحكم السفلية (يتبدل محتواها حسب المرحلة النشطة فقط لتفادي الازدحام) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#09183B"
+        android:background="#0F172A"
         android:orientation="vertical"
-        android:padding="10dp">
+        android:paddingLeft="10dp"
+        android:paddingRight="10dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="10dp">
 
-        <!-- المرحلة 1: أزرار التصوير وتجميع المستندات -->
+        <!-- شريط التحكم لمرحلة التصوير -->
         <LinearLayout
             android:id="@+id/layout_camera_controls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+            <!-- شريط الأوضاع المعتمدة فقط -->
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:layout_marginBottom="8dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <Button
+                        android:id="@+id/btn_mode_single"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="فردي"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/bg_scanner_pill_active"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold"
+                        android:layout_marginEnd="6dp" />
+
+                    <Button
+                        android:id="@+id/btn_mode_batch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="دفعة"
+                        android:textColor="#CBD5E1"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="11.5sp"
+                        android:layout_marginEnd="6dp" />
+
+                    <Button
+                        android:id="@+id/btn_mode_book"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="الكتب"
+                        android:textColor="#CBD5E1"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="11.5sp"
+                        android:layout_marginEnd="6dp" />
+
+                    <Button
+                        android:id="@+id/btn_mode_id_card"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="بطاقات الهوية"
+                        android:textColor="#CBD5E1"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="11.5sp"
+                        android:layout_marginEnd="6dp" />
+
+                    <Button
+                        android:id="@+id/btn_mode_qr"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="قراءة QR والباركود"
+                        android:textColor="#CBD5E1"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="11.5sp" />
+                </LinearLayout>
+            </HorizontalScrollView>
+
+            <!-- صف التصوير والاستيراد -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:gravity="center">
+                android:gravity="center_vertical">
 
                 <Button
-                    android:id="@+id/btn_flash_toggle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="42dp"
-                    android:text="فلاش"
-                    android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="11sp"
-                    android:layout_marginEnd="5dp" />
+                    android:id="@+id/btn_all_features"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="كل المميزات"
+                    android:textColor="#E2E8F0"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="4dp" />
 
                 <Button
-                    android:id="@+id/btn_studio_import"
-                    android:layout_width="wrap_content"
-                    android:layout_height="42dp"
-                    android:text="من الاستوديو"
+                    android:id="@+id/btn_import_images"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="استيراد صور"
                     android:textColor="#5EEAD4"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:layout_marginEnd="5dp" />
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="6dp" />
 
                 <Button
                     android:id="@+id/btn_capture_page"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
+                    android:layout_width="58dp"
+                    android:layout_height="58dp"
                     android:text="التقاط"
                     android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_card_teal"
-                    android:textSize="13.5sp"
+                    android:background="@drawable/bg_scanner_shutter"
+                    android:textSize="10.5sp"
                     android:textStyle="bold" />
 
                 <Button
+                    android:id="@+id/btn_import_files"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="استيراد ملفات"
+                    android:textColor="#FDE047"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
                     android:id="@+id/btn_open_review"
-                    android:layout_width="wrap_content"
-                    android:layout_height="42dp"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
                     android:text="التالي (0)"
                     android:textColor="#09183B"
                     android:background="@drawable/bg_share_button"
-                    android:textSize="11.5sp"
-                    android:textStyle="bold"
-                    android:layout_marginStart="5dp" />
+                    android:textSize="10.5sp"
+                    android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
-        <!-- محرر القص اليدوي للزوايا الأربع -->
+        <!-- شريط التحكم لمرحلة القص اليدوي وعدسة التكبير -->
         <LinearLayout
             android:id="@+id/layout_crop_controls"
             android:layout_width="match_parent"
@@ -361,10 +541,10 @@
                     android:layout_width="0dp"
                     android:layout_height="38dp"
                     android:layout_weight="1"
-                    android:text="كشف تلقائي للزوايا"
+                    android:text="اكتشاف تلقائي"
                     android:textColor="#5EEAD4"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="11sp"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="11.5sp"
                     android:layout_marginEnd="6dp" />
 
                 <Button
@@ -374,8 +554,8 @@
                     android:layout_weight="1"
                     android:text="كامل الصورة"
                     android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="11sp" />
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="11.5sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -390,7 +570,7 @@
                     android:layout_weight="1"
                     android:text="إلغاء"
                     android:textColor="#FCA5A5"
-                    android:background="@drawable/bg_icon_box"
+                    android:background="@drawable/bg_scanner_pill_dark"
                     android:textSize="12sp"
                     android:layout_marginEnd="6dp" />
 
@@ -402,12 +582,258 @@
                     android:text="تطبيق القص والمنظور"
                     android:textColor="#FFFFFF"
                     android:background="@drawable/bg_card_teal"
-                    android:textSize="12sp"
+                    android:textSize="12.5sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
-        <!-- المرحلة 2: مراجعة الصفحات وتحسينها (أدوات أساسية + قائمة تحرير مطوية) -->
+        <!-- شريط التحكم لمرحلة رسم التوقيع -->
+        <LinearLayout
+            android:id="@+id/layout_signature_draw_controls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
+
+                <Button
+                    android:id="@+id/btn_sig_ink_blue"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="أزرق ✓"
+                    android:textColor="#93C5FD"
+                    android:background="@drawable/bg_scanner_pill_active"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_sig_ink_black"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="أسود"
+                    android:textColor="#E2E8F0"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_sig_ink_red"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="أحمر"
+                    android:textColor="#FCA5A5"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_sig_undo"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="تراجع"
+                    android:textColor="#FDE047"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="11sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_sig_clear"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="مسح"
+                    android:textColor="#FCA5A5"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_sig_draw_cancel"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:text="إلغاء"
+                    android:textColor="#FCA5A5"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="12sp"
+                    android:layout_marginEnd="6dp" />
+
+                <Button
+                    android:id="@+id/btn_sig_draw_next"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="2"
+                    android:text="وضع التوقيع على الصفحة"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_card_teal"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- شريط التحكم لمرحلة تحريك وتحجيم التوقيع فوق الصفحة -->
+        <LinearLayout
+            android:id="@+id/layout_signature_place_controls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="6dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="حجم التوقيع:"
+                    android:textColor="#E2E8F0"
+                    android:textSize="11.5sp"
+                    android:layout_marginEnd="8dp" />
+
+                <SeekBar
+                    android:id="@+id/seek_signature_size"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:max="65"
+                    android:progress="20" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_sig_place_cancel"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:text="إلغاء"
+                    android:textColor="#FCA5A5"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="12sp"
+                    android:layout_marginEnd="6dp" />
+
+                <Button
+                    android:id="@+id/btn_sig_place_apply"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="2"
+                    android:text="اعتماد التوقيع على الصفحة"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_card_teal"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- شريط التحكم لمعاينة الطابع الزمني قبل تطبيقه -->
+        <LinearLayout
+            android:id="@+id/layout_timestamp_controls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
+
+                <Button
+                    android:id="@+id/btn_ts_pos_br"
+                    android:layout_width="0dp"
+                    android:layout_height="34dp"
+                    android:layout_weight="1"
+                    android:text="أسفل يمين"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_scanner_pill_active"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_ts_pos_bl"
+                    android:layout_width="0dp"
+                    android:layout_height="34dp"
+                    android:layout_weight="1"
+                    android:text="أسفل يسار"
+                    android:textColor="#CBD5E1"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_ts_pos_tr"
+                    android:layout_width="0dp"
+                    android:layout_height="34dp"
+                    android:layout_weight="1"
+                    android:text="أعلى يمين"
+                    android:textColor="#CBD5E1"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_ts_toggle_time"
+                    android:layout_width="0dp"
+                    android:layout_height="34dp"
+                    android:layout_weight="1.1"
+                    android:text="تاريخ + وقت"
+                    android:textColor="#FDE047"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_ts_cancel"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:text="إلغاء"
+                    android:textColor="#FCA5A5"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="12sp"
+                    android:layout_marginEnd="6dp" />
+
+                <Button
+                    android:id="@+id/btn_ts_apply"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="2"
+                    android:text="تطبيق الطابع الزمني"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_card_teal"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- المرحلة 2: أدوات المراجعة والتحرير المنظمة -->
         <LinearLayout
             android:id="@+id/layout_review_controls"
             android:layout_width="match_parent"
@@ -415,13 +841,13 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <!-- شريط التنقل والإضافة والمعاينة -->
+            <!-- تنقل وترتيب الصفحات -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="5dp">
+                android:layout_marginBottom="6dp">
 
                 <Button
                     android:id="@+id/btn_prev_page"
@@ -430,7 +856,7 @@
                     android:layout_weight="1"
                     android:text="السابقة"
                     android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_icon_box"
+                    android:background="@drawable/bg_scanner_pill_dark"
                     android:textSize="10.5sp"
                     android:layout_marginEnd="4dp" />
 
@@ -441,245 +867,243 @@
                     android:layout_weight="1"
                     android:text="التالية"
                     android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_icon_box"
+                    android:background="@drawable/bg_scanner_pill_dark"
                     android:textSize="10.5sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_move_prev"
+                    android:layout_width="0dp"
+                    android:layout_height="34dp"
+                    android:layout_weight="0.85"
+                    android:text="تقديم"
+                    android:textColor="#FDE047"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_move_next"
+                    android:layout_width="0dp"
+                    android:layout_height="34dp"
+                    android:layout_weight="0.85"
+                    android:text="تأخير"
+                    android:textColor="#FDE047"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
                     android:layout_marginEnd="4dp" />
 
                 <Button
                     android:id="@+id/btn_full_preview"
                     android:layout_width="0dp"
                     android:layout_height="34dp"
-                    android:layout_weight="1"
-                    android:text="تكبير"
+                    android:layout_weight="0.95"
+                    android:text="معاينة"
                     android:textColor="#5EEAD4"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="10.5sp"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
                     android:layout_marginEnd="4dp" />
 
                 <Button
-                    android:id="@+id/btn_add_more_pages"
+                    android:id="@+id/btn_delete_page"
                     android:layout_width="0dp"
                     android:layout_height="34dp"
-                    android:layout_weight="1"
-                    android:text="+ كاميرا"
-                    android:textColor="#5EEAD4"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="10.5sp"
-                    android:layout_marginEnd="4dp" />
-
-                <Button
-                    android:id="@+id/btn_review_import_studio"
-                    android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_weight="1"
-                    android:text="+ استوديو"
-                    android:textColor="#FDE047"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="10.5sp" />
+                    android:layout_weight="0.8"
+                    android:text="حذف"
+                    android:textColor="#FCA5A5"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp" />
             </LinearLayout>
 
-            <!-- شريط الأدوات الأساسية في صف واحد -->
+            <!-- شريط الإجراءات الرئيسية النظيف -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginBottom="5dp">
+                android:layout_marginBottom="6dp">
+
+                <Button
+                    android:id="@+id/btn_manual_crop"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="قص"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10.5sp"
+                    android:layout_marginEnd="4dp" />
 
                 <Button
                     android:id="@+id/btn_rotate_right_90"
                     android:layout_width="0dp"
                     android:layout_height="36dp"
                     android:layout_weight="1"
-                    android:text="يمين 90°"
+                    android:text="تدوير 90°"
                     android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="9.5sp"
-                    android:layout_marginEnd="3dp" />
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="4dp" />
 
                 <Button
-                    android:id="@+id/btn_rotate_left_90"
+                    android:id="@+id/btn_open_signature"
                     android:layout_width="0dp"
                     android:layout_height="36dp"
                     android:layout_weight="1"
-                    android:text="يسار 90°"
-                    android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="9.5sp"
-                    android:layout_marginEnd="3dp" />
+                    android:text="توقيع"
+                    android:textColor="#5EEAD4"
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10.5sp"
+                    android:layout_marginEnd="4dp" />
 
                 <Button
-                    android:id="@+id/btn_move_prev"
+                    android:id="@+id/btn_open_timestamp"
                     android:layout_width="0dp"
                     android:layout_height="36dp"
-                    android:layout_weight="0.8"
-                    android:text="تقديم"
+                    android:layout_weight="1.15"
+                    android:text="طابع زمني"
                     android:textColor="#FDE047"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="9.5sp"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
-                    android:id="@+id/btn_move_next"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="0.8"
-                    android:text="تأخير"
-                    android:textColor="#FDE047"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="9.5sp"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
-                    android:id="@+id/btn_retake_page"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="0.8"
-                    android:text="إعادة"
-                    android:textColor="#FFFFFF"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="9.5sp"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
-                    android:id="@+id/btn_delete_page"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="0.8"
-                    android:text="حذف"
-                    android:textColor="#FCA5A5"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="9.5sp"
-                    android:layout_marginEnd="3dp" />
+                    android:background="@drawable/bg_scanner_pill_dark"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="4dp" />
 
                 <Button
                     android:id="@+id/btn_toggle_edit_tools"
                     android:layout_width="0dp"
                     android:layout_height="36dp"
-                    android:layout_weight="1.3"
-                    android:text="أدوات التحرير"
+                    android:layout_weight="1.15"
+                    android:text="التحسين ▲"
                     android:textColor="#5EEAD4"
-                    android:background="@drawable/bg_icon_box"
-                    android:textSize="9.5sp"
+                    android:background="@drawable/bg_scanner_pill_active"
+                    android:textSize="10.5sp"
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- قائمة أدوات التحرير الثانوية (مخفية افتراضياً) -->
+            <!-- درج التحسين والإضافة (مطوي افتراضياً لتجنب ازدحام الواجهة) -->
             <LinearLayout
                 android:id="@+id/layout_edit_tools_drawer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="#0F172A"
-                android:padding="6dp"
+                android:background="#1E293B"
+                android:padding="8dp"
                 android:layout_marginBottom="6dp"
                 android:visibility="gone">
 
-                <!-- القص + الإضاءة + ضبط تلقائي -->
+                <!-- الفلاتر الأربعة -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="5dp">
-
-                    <Button
-                        android:id="@+id/btn_manual_crop"
-                        android:layout_width="0dp"
-                        android:layout_height="34dp"
-                        android:layout_weight="1.3"
-                        android:text="القص والمنظور"
-                        android:textColor="#FFFFFF"
-                        android:background="@drawable/bg_card_blue"
-                        android:textSize="10sp"
-                        android:layout_marginEnd="4dp" />
-
-                    <Button
-                        android:id="@+id/btn_brightness_down"
-                        android:layout_width="0dp"
-                        android:layout_height="34dp"
-                        android:layout_weight="0.8"
-                        android:text="إضاءة -"
-                        android:textColor="#FFFFFF"
-                        android:background="@drawable/bg_icon_box"
-                        android:textSize="10sp"
-                        android:layout_marginEnd="3dp" />
-
-                    <TextView
-                        android:id="@+id/tv_brightness_value"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="0.8"
-                        android:gravity="center"
-                        android:text="تلقائي"
-                        android:textColor="#5EEAD4"
-                        android:textSize="10sp" />
-
-                    <Button
-                        android:id="@+id/btn_brightness_up"
-                        android:layout_width="0dp"
-                        android:layout_height="34dp"
-                        android:layout_weight="0.8"
-                        android:text="إضاءة +"
-                        android:textColor="#FFFFFF"
-                        android:background="@drawable/bg_icon_box"
-                        android:textSize="10sp"
-                        android:layout_marginStart="3dp"
-                        android:layout_marginEnd="4dp" />
-
-                    <Button
-                        android:id="@+id/btn_auto_adjust"
-                        android:layout_width="0dp"
-                        android:layout_height="34dp"
-                        android:layout_weight="1.1"
-                        android:text="تحسين تلقائي"
-                        android:textColor="#09183B"
-                        android:background="@drawable/bg_share_button"
-                        android:textSize="10sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <!-- أوضاع الألوان -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:layout_marginBottom="6dp">
 
                     <Button
                         android:id="@+id/btn_filter_color"
                         android:layout_width="0dp"
                         android:layout_height="32dp"
-                        android:layout_weight="1"
-                        android:text="ألوان أصلية ✓"
+                        android:layout_weight="1.1"
+                        android:text="أصلي محسّن"
                         android:textColor="#09183B"
                         android:background="@drawable/bg_share_button"
-                        android:textSize="10sp"
+                        android:textSize="9.5sp"
                         android:textStyle="bold"
+                        android:layout_marginEnd="4dp" />
+
+                    <Button
+                        android:id="@+id/btn_filter_natural"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_weight="0.9"
+                        android:text="طبيعي"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="9.5sp"
                         android:layout_marginEnd="4dp" />
 
                     <Button
                         android:id="@+id/btn_filter_gray"
                         android:layout_width="0dp"
                         android:layout_height="32dp"
-                        android:layout_weight="1"
-                        android:text="تدرج رمادي"
+                        android:layout_weight="0.9"
+                        android:text="رمادي"
                         android:textColor="#FFFFFF"
-                        android:background="@drawable/bg_icon_box"
-                        android:textSize="10sp"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="9.5sp"
                         android:layout_marginEnd="4dp" />
 
                     <Button
                         android:id="@+id/btn_filter_bw"
                         android:layout_width="0dp"
                         android:layout_height="32dp"
-                        android:layout_weight="1"
+                        android:layout_weight="1.1"
                         android:text="أبيض وأسود"
                         android:textColor="#FFFFFF"
-                        android:background="@drawable/bg_icon_box"
-                        android:textSize="10sp" />
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="9.5sp" />
+                </LinearLayout>
+
+                <!-- الإضاءة وإضافة صفحات -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <Button
+                        android:id="@+id/btn_brightness_down"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_weight="0.9"
+                        android:text="إضاءة -"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="9.5sp"
+                        android:layout_marginEnd="3dp" />
+
+                    <TextView
+                        android:id="@+id/tv_brightness_value"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="0.7"
+                        android:gravity="center"
+                        android:text="تلقائي"
+                        android:textColor="#5EEAD4"
+                        android:textSize="9.5sp" />
+
+                    <Button
+                        android:id="@+id/btn_brightness_up"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_weight="0.9"
+                        android:text="إضاءة +"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="9.5sp"
+                        android:layout_marginStart="3dp"
+                        android:layout_marginEnd="4dp" />
+
+                    <Button
+                        android:id="@+id/btn_add_more_pages"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:text="+ كاميرا"
+                        android:textColor="#5EEAD4"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="9.5sp"
+                        android:layout_marginEnd="4dp" />
+
+                    <Button
+                        android:id="@+id/btn_retake_page"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_weight="0.9"
+                        android:text="إعادة"
+                        android:textColor="#FDE047"
+                        android:background="@drawable/bg_scanner_pill_dark"
+                        android:textSize="9.5sp" />
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- زر الانتقال الرئيسي للمرحلة 3 -->
             <Button
                 android:id="@+id/btn_go_to_export"
                 android:layout_width="match_parent"
@@ -706,7 +1130,7 @@
                 android:layout_weight="1"
                 android:text="السابق: المراجعة"
                 android:textColor="#FFFFFF"
-                android:background="@drawable/bg_icon_box"
+                android:background="@drawable/bg_scanner_pill_dark"
                 android:textSize="12sp"
                 android:layout_marginEnd="6dp" />
 
